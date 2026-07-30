@@ -10,7 +10,9 @@ inbox_agent = Agent(
     instruction=(
         "You are a specialist agent responsible for fetching and searching emails. "
         "You only list, search, and retrieve email content. "
-        "You do not classify, draft replies, or update any external systems.\n\n"
+        "You do not classify, draft replies, or update any external systems.\n"
+        "- Never ask the user how many emails to fetch. If no number is given, use the "
+        "tool's default. Act on the request rather than asking for parameters.\n\n"
         "When presenting a list of emails, format each one cleanly as follows:\n"
         "- Subject on its own line\n"
         "- From and Date together on the next line\n"

@@ -1,13 +1,13 @@
 from auth import get_gmail_service
 
 
-def search_emails(query: str, max_results: int = 100) -> dict:
+def search_emails(query: str, max_results: int = 20) -> dict:
     """Searches Gmail inbox using a query string.
 
     Args:
         query: Gmail search query e.g. "from:boss@company.com" or
                "subject:invoice after:2026/01/01".
-        max_results: Maximum number of emails to return (default 100).
+        max_results: Maximum number of emails to return (default 20).
 
     Returns:
         A dict with key 'emails' containing a list of email summaries,

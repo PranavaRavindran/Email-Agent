@@ -294,18 +294,23 @@ def _apply(sheets_service, updates: list, rows_to_append: list, last_data_row: i
     return {"rows_added": rows_added, "rows_updated": rows_updated}
 
 
-def stage_write(entries: list) -> dict:
+def stage_write(entries: list, ids_searched: int = 0, ids_fetched: int = 0) -> dict:
     """Validates and resolves job application entries against the Tracker
     sheet and stages the result for confirmation, without writing anything to
     the sheet yet.
 
     Args:
         entries: List of dicts, each with keys: date, company, role, source, status.
+        ids_searched: Number of ids search_email_ids returned, for the
+            fetch-completeness check.
+        ids_fetched: Number of get_email_detail calls actually made, for the
+            fetch-completeness check.
 
     Returns:
         A dict with new_rows_count, status_changes_count, unchanged_count, the
         details of new_rows and status_changes (but not the unchanged entries
-        themselves), duplicates_in_batch, unseen_rows, invalid_entries, and a
+        themselves), duplicates_in_batch, unseen_rows, invalid_entries,
+        fetch_gap (if fewer emails were fetched than were searched), and a
         has_changes flag. If entries is empty, returns an error dict instead
         and does not write pending_write.json.
     """
@@ -367,9 +372,17 @@ def stage_write(entries: list) -> dict:
     status_changes = resolved["status_changes"]
     unchanged_count = resolved["unchanged_count"]
     unseen_rows = resolved["unseen_rows"]
+    fetch_gap = None
+    if ids_searched > 0 and ids_fetched < ids_searched:
+        fetch_gap = {"ids_searched": ids_searched, "ids_fetched": ids_fetched}
+        print(
+            f"[stage_write] WARNING fetched {ids_fetched} of {ids_searched} emails "
+            "— some were not read"
+        )
+
     has_changes = bool(
         new_rows or status_changes or unseen_rows or duplicates_in_batch or invalid_entries
-    )
+    ) or fetch_gap is not None
 
     pending = {
         "entries": resolved["entries"],
@@ -404,6 +417,7 @@ def stage_write(entries: list) -> dict:
         "duplicates_in_batch": duplicates_in_batch,
         "unseen_rows": unseen_rows,
         "invalid_entries": invalid_entries,
+        "fetch_gap": fetch_gap,
         "has_changes": has_changes,
     }
 
