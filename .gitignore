@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+*.pyc
+credentials.json
+token.pickle
+pending_write.json
+.claude/

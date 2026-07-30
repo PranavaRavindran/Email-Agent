@@ -1,0 +1,88 @@
+name: email-intelligence-agent
+version: 2.0.0
+description: >
+  A multi-agent email intelligence system that reads a user's Gmail inbox,
+  classifies emails by priority and type, extracts action items and deadlines,
+  drafts reply suggestions for review, and tracks job applications in a
+  Google Sheet.
+
+orchestration:
+  pattern: multi-agent
+  root: root_agent
+  agent_connections: AgentTool
+
+agents:
+  - name: root_agent
+    type: orchestrator
+    model: gemini-2.5-flash
+    instructions: >
+      You are the orchestrating agent for an email intelligence system.
+      You coordinate specialized sub-agents to handle user requests.
+      Delegate all email fetching and searching to inbox_agent.
+      Delegate all classification and prioritization to classification_agent.
+      Delegate all reply drafting to drafting_agent.
+      Delegate all job application tracking to tracker_agent.
+      Never handle email operations directly — always delegate.
+      Never send emails without explicit user approval.
+      Never delete or modify emails.
+    tools: []
+    sub_agents:
+      - inbox_agent
+      - classification_agent
+      - drafting_agent
+      - tracker_agent
+    connection_type: AgentTool
+
+  - name: inbox_agent
+    type: specialist
+    model: gemini-2.5-flash
+    instructions: >
+      You are a specialist agent responsible for fetching and searching emails.
+      You only list, search, and retrieve email content.
+      You do not classify, draft replies, or update any external systems.
+    tools:
+      - list_emails
+      - search_emails
+      - get_email_detail
+
+  - name: classification_agent
+    type: specialist
+    model: gemini-2.5-flash
+    instructions: >
+      You are a specialist agent responsible for classifying emails by priority.
+      You analyze email content and return structured classifications including
+      urgency level, action items, and deadlines.
+      You do not fetch emails or draft replies.
+    tools:
+      - classify_email
+      - get_email_detail
+
+  - name: drafting_agent
+    type: specialist
+    model: gemini-2.5-flash
+    instructions: >
+      You are a specialist agent responsible for drafting email replies.
+      You compose professional replies based on the original email and user intent.
+      Always remind the user to review the draft before sending.
+      Never send emails directly.
+    tools:
+      - draft_reply
+
+  - name: tracker_agent
+    type: specialist
+    model: gemini-2.5-flash
+    instructions: >
+      You are a specialist agent responsible for tracking job applications.
+      You search Gmail for job application confirmation emails and log them
+      to a Google Sheet. Extract company name, role, date applied, and
+      application status from each email.
+    tools:
+      - search_emails
+      - write_to_sheet
+
+guardrails:
+  - never send emails without explicit user approval
+  - never delete or modify emails
+  - only read inbox unless user specifies another folder
+  - always show drafts to user before any further action
+  - never write to the sheet without confirming with the user first
