@@ -5,3 +5,4 @@ credentials.json
 token.pickle
 pending_write.json
 .claude/
+eval_agent/.adk/

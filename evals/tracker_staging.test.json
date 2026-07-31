@@ -1,0 +1,45 @@
+{
+  "eval_set_id": "tracker_staging",
+  "name": "Tracker staging eval set",
+  "description": "Verifies that a tracker update request searches for and stages new job application entries without committing the write, preserving the confirm-before-write guarantee.",
+  "eval_cases": [
+    {
+      "eval_id": "tracker_stages_without_committing",
+      "conversation": [
+        {
+          "invocation_id": "tracker_stages_without_committing-1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "update my job application tracker with application emails from june and july 2026"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "I found new job application entries from June and July 2026 and staged them. They have not been written to the sheet yet. Would you like me to write them?"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {   
+                "name": "tracker_agent",
+                "args": { "request": "update my job application tracker with application emails from june and july 2026" }
+              }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_agent",
+        "user_id": "test_user",
+        "state": {}
+      }
+    }
+  ]
+}

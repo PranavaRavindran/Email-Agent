@@ -1,45 +1,84 @@
 name: email-intelligence-agent
-version: 2.0.0
+version: 3.0.0
 description: >
   A multi-agent email intelligence system that reads a user's Gmail inbox,
   classifies emails by priority and type, extracts action items and deadlines,
-  drafts reply suggestions for review, and tracks job applications in a
-  Google Sheet.
+  drafts reply suggestions for review, and maintains a job application tracker
+  in a Google Sheet.
+
+  This spec is the behavioural contract for the system: it states the rules that
+  determine whether output is correct. It deliberately does not reproduce agent
+  instruction prose. Wording, ordering and phrasing are implementation; if the
+  spec becomes a copy of the instruction strings, the two will drift apart and
+  neither will be authoritative.
 
 orchestration:
   pattern: multi-agent
   root: root_agent
   agent_connections: AgentTool
+  rationale: >
+    All four specialists are connected via AgentTool rather than ADK's
+    sub_agents parameter. AgentTool keeps root_agent in control of the
+    conversation, which is required for chaining (fetch then classify) and for
+    the tracker's two-turn confirmation flow. A consequence: a sub-agent
+    invoked via AgentTool completes and terminates, so it cannot pause
+    mid-invocation and wait for a user answer — any confirmation state must
+    live in root_agent or on disk.
 
 agents:
   - name: root_agent
     type: orchestrator
     model: gemini-2.5-flash
-    instructions: >
-      You are the orchestrating agent for an email intelligence system.
-      You coordinate specialized sub-agents to handle user requests.
-      Delegate all email fetching and searching to inbox_agent.
-      Delegate all classification and prioritization to classification_agent.
-      Delegate all reply drafting to drafting_agent.
-      Delegate all job application tracking to tracker_agent.
-      Never handle email operations directly — always delegate.
-      Never send emails without explicit user approval.
-      Never delete or modify emails.
-    tools: []
-    sub_agents:
+    responsibilities:
+      - Route each request to the appropriate specialist; never perform email
+        operations directly.
+      - Chain specialists when a request requires more than one step, and
+        complete the whole chain before responding.
+      - Hold the tracker's write-confirmation state across turns.
+    behavioural_rules:
+      - Priority, urgency, and "what needs action" questions must be routed
+        through inbox_agent to fetch, then classification_agent to classify.
+        They must never be sent to inbox_agent alone.
+      - Reply drafting must fetch the full email body via inbox_agent before
+        calling drafting_agent. A draft must never be produced from a subject
+        line or preview.
+      - Never fabricate a result a specialist would have returned. If a step
+        did not run, say so rather than reporting its likely output.
+      - Never ask the user for routine parameters such as how many emails to
+        retrieve. Choose a sensible default and act. Default to 20 most recent
+        for prioritisation requests.
+      - Drafts are presented in a fixed order: the "Replying to" line, the
+        complete unmodified draft text, then the send confirmation question.
+        The draft is never summarised or truncated.
+    tracker_confirmation_flow:
+      - tracker_agent stages writes; it never commits on its own initiative.
+      - When a staged diff reports has_changes true, present the new rows and
+        status changes, then STOP and wait. Do not re-invoke tracker_agent
+        until the user answers.
+      - On confirmation, invoke tracker_agent to commit only. Never re-run the
+        search or staging step — the resolved plan is already on disk.
+      - When has_changes is false, report that the tracker is up to date and do
+        NOT ask for confirmation.
+      - Only report "up to date" when a staged diff actually said so. If
+        tracker_agent claims it without reporting staged counts, treat the
+        staging step as not having run and ask for it again. A claim without
+        counts is not evidence.
+    agent_tools:
       - inbox_agent
       - classification_agent
       - drafting_agent
       - tracker_agent
-    connection_type: AgentTool
 
   - name: inbox_agent
     type: specialist
     model: gemini-2.5-flash
-    instructions: >
-      You are a specialist agent responsible for fetching and searching emails.
-      You only list, search, and retrieve email content.
-      You do not classify, draft replies, or update any external systems.
+    responsibilities:
+      - Fetch, search, and retrieve email content.
+    behavioural_rules:
+      - Does not classify, draft replies, or write to any external system.
+      - Never asks the user how many emails to fetch; uses the tool default.
+      - Presents email lists in a fixed format: subject, then sender and date,
+        then a one-sentence summary, separated by blank lines.
     tools:
       - list_emails
       - search_emails
@@ -48,11 +87,28 @@ agents:
   - name: classification_agent
     type: specialist
     model: gemini-2.5-flash
-    instructions: >
-      You are a specialist agent responsible for classifying emails by priority.
-      You analyze email content and return structured classifications including
-      urgency level, action items, and deadlines.
-      You do not fetch emails or draft replies.
+    responsibilities:
+      - Classify emails by priority and extract action items and deadlines.
+    categories:
+      urgent: >
+        Security alerts affecting the user's accounts — new sign-in, password
+        reset, account compromise warnings.
+      action_needed: >
+        A recruiter email asking the user to schedule or respond by a specific
+        date; or any email containing a specific deadline addressed to the user
+        personally rather than as part of a mass send.
+      fyi: >
+        Informational only. Explicitly includes job rejections, job
+        recommendations, marketing email, general recruiter outreach with no
+        scheduling ask, and job board notifications.
+      spam: >
+        Unsolicited or malicious content with no legitimate informational value.
+    behavioural_rules:
+      - Marketing email, job recommendations and job rejections are FYI, never
+        action_needed. A rejection requires nothing of the user.
+      - Output is a summary grouped by category, not a per-email report.
+        Categories with no members are omitted.
+      - Does not fetch emails or draft replies.
     tools:
       - classify_email
       - get_email_detail
@@ -60,29 +116,268 @@ agents:
   - name: drafting_agent
     type: specialist
     model: gemini-2.5-flash
-    instructions: >
-      You are a specialist agent responsible for drafting email replies.
-      You compose professional replies based on the original email and user intent.
-      Always remind the user to review the draft before sending.
-      Never send emails directly.
+    responsibilities:
+      - Compose reply drafts for user review.
+    behavioural_rules:
+      - Determine what the original email actually communicates by reading its
+        full body. Never judge from the subject line or opening pleasantries,
+        which frequently restate the application before delivering a different
+        outcome.
+      - A reply to a rejection is a brief, gracious acknowledgement. It must
+        never express continued interest in the declined role, ask about next
+        steps for it, or write as though the outcome were still open.
+      - A reply to an interview or assessment invitation confirms interest and
+        willingness to schedule.
+      - A reply to an application confirmation is brief, or notes that no reply
+        is typically needed.
+      - A reply to an offer acknowledges it without committing to accept or
+        decline unless the user has said which they want.
+      - Always remind the user to review before sending. Never send directly.
     tools:
       - draft_reply
 
   - name: tracker_agent
     type: specialist
     model: gemini-2.5-flash
-    instructions: >
-      You are a specialist agent responsible for tracking job applications.
-      You search Gmail for job application confirmation emails and log them
-      to a Google Sheet. Extract company name, role, date applied, and
-      application status from each email.
+    generation:
+      temperature: 0.0
+      rationale: >
+        Extraction produced different statuses and role titles on identical
+        input across runs. Temperature 0 removes deliberate sampling variance.
+        It is not a determinism guarantee — remaining variance is absorbed in
+        code (see write_to_sheet) or surfaced by the validation checks.
+    responsibilities:
+      - Extract job applications from email and maintain the Tracker sheet.
     tools:
-      - search_emails
-      - write_to_sheet
+      - search_email_ids
+      - get_email_detail
+      - stage_write
+      - commit_write
+    intents:
+      preview: >
+        Return the entries that would be written, without staging or writing.
+      search_and_stage: >
+        Search, extract, and stage. Report the diff and stop. Never commits in
+        the same invocation.
+      stage_provided_entries: >
+        Stage a user-supplied list without searching. Report the diff and stop.
+      commit: >
+        Apply the previously staged plan. Takes no entry data.
+    behavioural_rules:
+      data_access:
+        - search_email_ids returns message IDs and nothing else — no subject,
+          sender, date, or preview text. get_email_detail must be called on
+          every ID returned before determining any field. There is no other
+          source of information about an email.
+        - Rationale: earlier versions returned metadata, and classification was
+          repeatedly performed from that metadata instead of message bodies,
+          producing subject lines recorded as job titles and invented dates.
+          Instructing the agent to open every email was not sufficient;
+          removing the alternative was.
+        - Every ID returned must be processed. Partial processing is a failure,
+          not an acceptable shortcut.
+      grouping:
+        - Entries are grouped by company and role. Two applications at the same
+          company with genuinely different job titles are separate entries and
+          must never be merged.
+        - Two entries at the same company are the same application if their
+          titles differ only by a requisition or reference number or by
+          punctuation. When merging, the longer, more complete title is kept.
+      field_extraction:
+        - ROLE is the job title as the email states it, including seniority
+          words, qualifiers, program or cohort names, assessment or track
+          names, and region or site qualifiers that form part of the posted
+          title. It is never paraphrased, shortened, or generalised.
+        - The ONLY text excluded from ROLE is requisition numbers, reference
+          numbers, job IDs and posting codes. These appear in some emails for
+          an application and not others, so including them splits one
+          application into two.
+        - The merge rule governs comparison between entries. It is never
+          licence to delete text from a title.
+        - COMPANY is the full company name as stated, excluding only a trailing
+          office location. Where emails give different forms, the longest is
+          used.
+      status:
+        - Status is exactly one of: Applied, Rejected, Interviewing, Offer. No
+          other value may be produced. An unconstrained field previously
+          yielded invented values such as "Hold".
+        - Status is determined by the most recent status-bearing email in the
+          group. It is never affected by whether an application confirmation
+          was found.
+        - Status is never inferred from the absence of evidence. A missing
+          confirmation email means the application date is unknown; it never
+          means the status is Applied.
+        - Classification is semantic, from the full body. It is never keyword
+          matching. Any example phrases in the instruction are illustrative
+          only — companies word these very differently, and a literal-phrase
+          lookup table failed on real rejections that used none of its terms.
+        - An email frequently opens with boilerplate restating the application
+          before delivering a different outcome. The type is determined by the
+          OUTCOME communicated, never by the opening. An email that both
+          acknowledges an application and communicates a rejection is a
+          rejection.
+        - A rejection worded gently — thanking the candidate, complimenting
+          their background, mentioning future opportunities — is still a
+          rejection. What matters is whether the candidate is advanced.
+        - An invitation to an assessment, take-home, technical screen, phone
+          screen or recruiter screening call is Interviewing, whether or not it
+          has been completed. An expiry reminder for such an invitation is also
+          Interviewing.
+        - An email whose ONLY purpose is to request feedback is not
+          status-bearing and must be excluded entirely when determining status.
+          It must never be treated as the most recent email in a group.
+        - An email that communicates a real outcome IS status-bearing even if
+          it also contains a feedback request or survey link. Judge by the
+          outcome, not by the presence of a survey.
+      date:
+        - STATUS and DATE are determined independently and never influence each
+          other.
+        - DATE is the application confirmation email's date if one exists in
+          the group. Otherwise it is the earliest email in the group, flagged
+          approximate.
+        - Each entry's date must come from an email in that entry's own group.
+          Dates are never copied or inferred from another entry.
+        - No backward search is performed for confirmation emails outside the
+          requested range. When no confirmation exists in range, the date is
+          approximate. See future_work for the removed two-pass design.
+      output:
+        - Entries are sorted oldest first. (Enforced in code; see below.)
+        - Always report what was done after acting.
+
+tools:
+  search_email_ids:
+    purpose: Gmail query search returning message IDs only.
+    used_by: [tracker_agent]
+    contract: >
+      Returns no subject, sender, date or preview. This is deliberate and is
+      the mechanism that forces full-body reads.
+  search_emails:
+    purpose: Gmail query search returning IDs plus From, Subject and Date.
+    used_by: [inbox_agent]
+    contract: >
+      Serves user-facing search, where metadata is the answer. Must not be
+      exposed to tracker_agent — the two tools exist separately rather than as
+      one tool with a metadata flag, because a flag restores the choice the
+      split was made to remove.
+  list_emails:
+    purpose: Most recent inbox messages with metadata and snippet.
+    used_by: [inbox_agent]
+  get_email_detail:
+    purpose: Full message retrieval and body extraction.
+    used_by: [inbox_agent, classification_agent, tracker_agent]
+    contract:
+      - Body extraction walks the entire MIME tree at any depth, preferring
+        text/plain and falling back to text/html converted to readable text.
+      - Rationale: roughly 40% of recruiting email in this corpus is HTML-only
+        with no text/plain part at any depth. A plain-text-only extractor
+        returned empty bodies for all of them, and classification then ran on
+        whatever fragment remained. This was the root cause of the system's
+        most serious correctness bug.
+      - Bodies are truncated to 2000 characters. Application status is always
+        established in the opening paragraph; untruncated bodies caused
+        context-exhaustion and rate-limit failures.
+      - No snippet is returned.
+  classify_email:
+    purpose: Priority classification, action item and deadline extraction.
+    used_by: [classification_agent]
+  draft_reply:
+    purpose: Reply generation for review.
+    used_by: [drafting_agent]
+  stage_write:
+    purpose: Validate and resolve entries against the sheet; stage without writing.
+    used_by: [tracker_agent]
+  commit_write:
+    purpose: Apply the staged plan.
+    used_by: [tracker_agent]
+    contract: >
+      Takes no parameters and does not recompute the plan. It applies the
+      updates and appended rows persisted by stage_write, so the write is
+      guaranteed to match the diff the user approved even if the sheet has
+      changed since. A staged plan older than one hour is refused as stale.
+
+sheet_contract:
+  tab: Tracker
+  layout: >
+    Row 1 holds a table title, row 2 holds headers (Date, Company, Role, Link,
+    Source, Status). Data begins at row 3.
+  rules:
+    - Column D (Link) is always left blank.
+    - Column A is left blank on a new row whose date matches the row above it.
+    - Sheet1 is a legacy manual tracker and must never be written to.
+    - Matching against existing rows uses normalised company and role only.
+      Date is deliberately excluded: it drifts between runs, and including it
+      caused the same application to be appended repeatedly.
+    - Company matching tolerates one normalised key being a whitespace-boundary
+      prefix of the other, to handle truncated extractions. Role must match
+      exactly — prefix matching on role would merge genuinely distinct
+      applications such as "Software Developer" and "Software Developer 2026
+      ELH".
+
+enforced_in_code:
+  rationale: >
+    Rules the agent was instructed to follow but did not follow reliably are
+    enforced in write_to_sheet instead. An instruction is a request; code is a
+    guarantee.
+  checks:
+    sorting: >
+      Entries are sorted oldest-first in code. Agent-side sorting reversed
+      itself between runs on identical input.
+    entry_validation: >
+      Entries missing a field, carrying a malformed date, or carrying a status
+      outside the permitted four are rejected before staging and reported.
+      Case and whitespace drift in a status is corrected silently.
+    duplicate_merge: >
+      Two incoming entries resolving to the same normalised key are MERGED, not
+      dropped: earliest date, latest status, longest company and role strings.
+      Dropping the later entry discarded the more recent status and reverted
+      applications to Applied.
+    unseen_rows: >
+      Existing sheet rows not matched by any incoming entry are reported. These
+      are rows the run did not verify.
+    fetch_gap: >
+      The count of IDs searched and IDs fetched is compared. A shortfall means
+      emails were skipped and is reported.
+    duplicate_sheet_keys: >
+      Existing rows sharing a normalised key are flagged as a data-quality
+      problem in the sheet itself.
+    empty_batch: >
+      An empty entry list is an error, not a no-op. Silence must not be
+      mistaken for "already up to date".
+  reporting_rule: >
+    All checks report their counts every run, including zero. A check that
+    produces no output is indistinguishable from a check that did not run.
 
 guardrails:
-  - never send emails without explicit user approval
-  - never delete or modify emails
-  - only read inbox unless user specifies another folder
-  - always show drafts to user before any further action
-  - never write to the sheet without confirming with the user first
+  - Gmail scope is gmail.readonly. The system cannot send, modify or delete
+    email at the API level, not merely by instruction. Sheets scope permits
+    writing only to the configured spreadsheet.
+  - Never send an email. Drafts are always presented for review.
+  - Never delete or modify email.
+  - Never write to the Tracker sheet without an explicit user confirmation of a
+    staged diff. Confirmation is held by root_agent across invocations and the
+    resolved plan is persisted to disk; tracker_agent never waits across turns.
+    A previous version of this guardrail required tracker_agent to confirm
+    directly, which is impossible across an AgentTool boundary and produced
+    writes that were reported as successful but never occurred.
+  - Never write to Sheet1.
+  - Never report an action as completed without evidence that the corresponding
+    tool ran.
+
+future_work:
+  see: FUTURE_WORK.md
+  summary:
+    - MCP for message transport with body parsing retained in-project.
+    - Nightly reconciliation agent (proposes, does not merge) — the intended
+      home for A2A and for drift detection.
+    - Evaluation suite built from the current verified-stable baseline.
+    - Deployment to Vertex AI Agent Engine.
+    - Similarity-based matching to replace pattern-based normalisation.
+  removed_by_decision:
+    two_pass_lookback: >
+      A conditional backward search for confirmation emails predating the
+      requested range was specified but never implemented, and its absence was
+      not detected until debug output proved only one search ever ran. Removed
+      from the design rather than built: no row is currently incorrect because
+      of it, and the accuracy gain applies only to applications older than the
+      search window. Recorded here because a spec describing unbuilt behaviour
+      is worse than a spec describing a simpler system honestly.

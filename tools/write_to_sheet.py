@@ -46,7 +46,7 @@ def _normalize(text: str) -> str:
     return text
 
 
-def _validate_entry(entry: dict):
+def _validate_entry(entry: dict, range_start: str = "", range_end: str = ""):
     """Validates a single incoming entry.
 
     Returns a (cleaned_entry, reason) tuple. reason is None if the entry is
@@ -54,6 +54,9 @@ def _validate_entry(entry: dict):
     whitespace/case drift and its source defaulted if missing. If reason is
     not None, cleaned_entry is unused - the caller should keep the original
     entry alongside the reason.
+
+    If both range_start and range_end are provided, the entry's date must
+    fall within that inclusive range.
     """
     company = entry.get("company")
     role = entry.get("role")
@@ -88,6 +91,9 @@ def _validate_entry(entry: dict):
         datetime.strptime(date_str, "%Y-%m-%d")
     except ValueError:
         return entry, f"date '{date_str}' is not a real date"
+
+    if range_start and range_end and not (range_start <= date_str <= range_end):
+        return entry, f"date {date_str} is outside the searched range {range_start} to {range_end}"
 
     status_stripped = str(status).strip()
     corrected_status = None
@@ -130,6 +136,53 @@ def _sort_key(entry):
         return (0, datetime.fromisoformat(entry["date"].strip()))
     except (KeyError, ValueError, AttributeError):
         return (1, datetime.max)
+
+
+def _merge_duplicates(valid_entries: list) -> tuple:
+    """Groups entries by normalized company+role and merges each group into a
+    single entry: earliest date, latest status, longest company and role
+    strings. Returns (deduped_entries, duplicates_in_batch)."""
+    groups = {}
+    group_order = []
+    for entry in valid_entries:
+        key = (_normalize(entry["company"]), _normalize(entry["role"]))
+        if key not in groups:
+            groups[key] = []
+            group_order.append(key)
+        groups[key].append(entry)
+
+    duplicates_in_batch = []
+    deduped_entries = []
+    for key in group_order:
+        group = groups[key]
+        if len(group) == 1:
+            deduped_entries.append(group[0])
+            continue
+
+        earliest_date = min(group, key=lambda e: e["date"])["date"]
+        latest_status = max(group, key=lambda e: e["date"])["status"]
+        longest_company = max(group, key=lambda e: len(e["company"]))["company"]
+        longest_role = max(group, key=lambda e: len(e["role"]))["role"]
+
+        merged = dict(group[0])
+        merged["date"] = earliest_date
+        merged["status"] = latest_status
+        merged["company"] = longest_company
+        merged["role"] = longest_role
+        deduped_entries.append(merged)
+
+        duplicates_in_batch.append({
+            "company": longest_company,
+            "role": longest_role,
+            "date": earliest_date,
+            "status": latest_status,
+        })
+        print(
+            f"[stage_write] merged duplicate: {longest_company} / {longest_role} -> "
+            f"date {earliest_date}, status {latest_status}"
+        )
+
+    return deduped_entries, duplicates_in_batch
 
 
 def _resolve(entries: list) -> dict:
@@ -294,7 +347,13 @@ def _apply(sheets_service, updates: list, rows_to_append: list, last_data_row: i
     return {"rows_added": rows_added, "rows_updated": rows_updated}
 
 
-def stage_write(entries: list, ids_searched: int = 0, ids_fetched: int = 0) -> dict:
+def stage_write(
+    entries: list,
+    ids_searched: int = 0,
+    ids_fetched: int = 0,
+    range_start: str = "",
+    range_end: str = "",
+) -> dict:
     """Validates and resolves job application entries against the Tracker
     sheet and stages the result for confirmation, without writing anything to
     the sheet yet.
@@ -305,6 +364,10 @@ def stage_write(entries: list, ids_searched: int = 0, ids_fetched: int = 0) -> d
             fetch-completeness check.
         ids_fetched: Number of get_email_detail calls actually made, for the
             fetch-completeness check.
+        range_start: Inclusive start of the searched date range, YYYY-MM-DD.
+            If both range_start and range_end are provided, entries dated
+            outside the range are rejected as invalid.
+        range_end: Inclusive end of the searched date range, YYYY-MM-DD.
 
     Returns:
         A dict with new_rows_count, status_changes_count, unchanged_count, the
@@ -320,51 +383,13 @@ def stage_write(entries: list, ids_searched: int = 0, ids_fetched: int = 0) -> d
     invalid_entries = []
     valid_entries = []
     for entry in entries:
-        cleaned, reason = _validate_entry(entry)
+        cleaned, reason = _validate_entry(entry, range_start, range_end)
         if reason is not None:
             invalid_entries.append({"entry": entry, "reason": reason})
         else:
             valid_entries.append(cleaned)
 
-    groups = {}
-    group_order = []
-    for entry in valid_entries:
-        key = (_normalize(entry["company"]), _normalize(entry["role"]))
-        if key not in groups:
-            groups[key] = []
-            group_order.append(key)
-        groups[key].append(entry)
-
-    duplicates_in_batch = []
-    deduped_entries = []
-    for key in group_order:
-        group = groups[key]
-        if len(group) == 1:
-            deduped_entries.append(group[0])
-            continue
-
-        earliest_date = min(group, key=lambda e: e["date"])["date"]
-        latest_status = max(group, key=lambda e: e["date"])["status"]
-        longest_company = max(group, key=lambda e: len(e["company"]))["company"]
-        longest_role = max(group, key=lambda e: len(e["role"]))["role"]
-
-        merged = dict(group[0])
-        merged["date"] = earliest_date
-        merged["status"] = latest_status
-        merged["company"] = longest_company
-        merged["role"] = longest_role
-        deduped_entries.append(merged)
-
-        duplicates_in_batch.append({
-            "company": longest_company,
-            "role": longest_role,
-            "date": earliest_date,
-            "status": latest_status,
-        })
-        print(
-            f"[stage_write] merged duplicate: {longest_company} / {longest_role} -> "
-            f"date {earliest_date}, status {latest_status}"
-        )
+    deduped_entries, duplicates_in_batch = _merge_duplicates(valid_entries)
 
     resolved = _resolve(deduped_entries)
 
