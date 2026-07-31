@@ -1,0 +1,39 @@
+{
+  "eval_set_id": "drafting_rejection",
+  "name": "Rejection drafting eval set",
+  "description": "Verifies that a reply drafted to a rejection email is a gracious acknowledgement that does not express continued interest in the declined role or ask about next steps for it. The drafting agent previously misjudged a rejection from its subject line rather than its body and replied as if the role were still open; this case guards against that regression. This case now asserts response content only (final_response_match_v2), not trajectory: root_agent was previously observed, in a buggy run, calling inbox_agent with only 'most recent email from Cisco' and getting back just the subject line, then fabricating an intent of 'express continued interest in the position' without having read the actual (rejection) content. That bug is now fixed — root_agent retrieves the full email body and passes an intent of 'gracious acknowledgement of job application rejection' to drafting_agent. The old, buggy tool_uses trajectory is not recorded here because exact trajectory matching is unsuitable for this case regardless of the fix: drafting_agent's args embed the full email body and a freeform intent phrase, neither of which is reliably reproducible. Also note: final_response_match_v2 (the LLM judge) scored that earlier buggy reply as a 1.0 match against this correct reference in testing, i.e. it did not catch the continued-interest violation — so a PASSED final_response_match_v2 score on this case should not be trusted on its own; actual_response must still be read manually.",
+  "eval_cases": [
+    {
+      "eval_id": "rejection_reply_does_not_express_continued_interest",
+      "conversation": [
+        {
+          "invocation_id": "rejection_reply_does_not_express_continued_interest-1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "draft a reply to the most recent email from Cisco"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Replying to: Entry-level Talent Recruiting - Cisco Application Status Update from Cisco@myworkday.com\n\nDear Cisco Entry-level Talent Recruiting Team,\n\nThank you very much for letting me know, and for the time you and the team took to consider my application. I really appreciated the opportunity to learn more about the role.\n\nI'd love to be kept in mind for future openings at Cisco that might be a good fit.\n\nThank you again for your consideration.\n\nBest regards\n\nPlease review this draft before sending. Would you like to send this?"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_agent",
+        "user_id": "test_user",
+        "state": {}
+      }
+    }
+  ]
+}

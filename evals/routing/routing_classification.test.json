@@ -1,0 +1,53 @@
+{
+  "eval_set_id": "routing_classification",
+  "name": "Attention routing eval set",
+  "description": "Verifies that a request about what needs attention is routed through inbox_agent then classification_agent, and is never answered by inbox_agent alone. This case is judged with evals/routing/test_config.json, which omits tool_trajectory_avg_score and scores only final_response_match_v2 (0.8). Reason: classification_agent's args embed inbox_agent's freeform per-email summary of live inbox contents, which varies run to run regardless of temperature, so an exact tool-trajectory match can never reliably pass here. Instead, the reference final_response asserts the one thing only classification_agent's involvement can produce: emails grouped into priority categories (Urgent, Action Needed, FYI). A response produced by inbox_agent alone would be a flat, uncategorized list, so the LLM judge can distinguish a correctly-routed answer from one that skipped classification even without inspecting the trajectory.",
+  "eval_cases": [
+    {
+      "eval_id": "attention_request_routes_through_classification",
+      "conversation": [
+        {
+          "invocation_id": "attention_request_routes_through_classification-1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "what emails need my attention right now"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here's a summary of your emails, grouped into three priority categories — Urgent, Action Needed, and FYI:\n\n**🔴 Urgent:**\n*   Security alert\n\n**🟡 Action Needed:**\n*   InquiryID #26-15853 | Message from The Fix regarding your repair inquiry\n\n**🟢 FYI:**\n*   InquiryID #26-15853 | Your repair inquiry has been accepted - The Fix in Stonebriar Center\n*   InquiryID #26-15853 | Appointment Confirmation - The Fix in Stonebriar Center (Stonebriar Centre / Frisco TX)\n*   Terms of Service Updates\n*   Thank you for your interest in Harmonic\n*   Spreadsheet shared with you: \"full time\"\n*   Entry-level Talent Recruiting - Cisco Application Status Update\n*   Important information about your application to Twitch\n*   Thank you for exploring careers at Yahoo!\n*   Regarding your application for: R20602 Associate Software Engineer\n*   Your Application Status for the Position of AI Engineer – 31152145\n*   Pranava, I think this job might be right for you!\n*   Application Status Change for Software Engineer I\n*   Your IBM Application Status\n*   Pranava, I think this job might be right for you!\n*   Get the best of Google AI at work with Gemini Enterprise app\n*   Thank you for considering Citi!\n*   MITRE: Thank you for your interest in the Early Career Software Developer job\n*   CloudFit Software - Software Development Engineer"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "name": "inbox_agent",
+                "args": {
+                  "request": "fetch 20 most recent emails"
+                }
+              },
+              {
+                "name": "classification_agent",
+                "args": {
+                  "request": "Subject: InquiryID #26-15853 | Message from The Fix regarding your repair inquiry\nFrom: The Fix <store@thefixsolutions.com> | Date: Thu, 30 Jul 2026 22:14:31 +0000 (UTC)\nThe Fix in Stonebriar Center is sending a message to Pranava Ravindran regarding a repair inquiry, inviting a reply to continue the conversation.\n\nSubject: InquiryID #26-15853 | Your repair inquiry has been accepted - The Fix in Stonebriar Center\nFrom: The Fix <store@thefixsolutions.com> | Date: Thu, 30 Jul 2026 22:09:44 +0000 (UTC)\nThe Fix in Stonebriar Center has accepted Pranava Ravindran's repair inquiry and is ready to help with the device.\n\nSubject: InquiryID #26-15853 | Appointment Confirmation - The Fix in Stonebriar Center (Stonebriar Centre / Frisco TX)\nFrom: The Fix <store@thefixsolutions.com> | Date: Thu, 30 Jul 2026 22:09:21 +0000 (UTC)\nThe Fix in Stonebriar Center (Stonebriar Centre / Frisco TX) is confirming Pranava Ravindran's repair appointment.\n\nSubject: Terms of Service Updates\nFrom: Indeed <no-reply@indeed.com> | Date: Wed, 29 Jul 2026 09:08:58 +0000\nIndeed is sending a notice about updates to their Terms of Service.\n\nSubject: Thank you for your interest in Harmonic\nFrom: Harmonic Hiring Team <no-reply@ashbyhq.com> | Date: Mon, 27 Jul 2026 23:35:17 +0000\nHarmonic Hiring Team is thanking Pranava for their interest and application, but regretfully informing them that they will not be moving forward with their application at this time.\n\nSubject: Spreadsheet shared with you: \"full time\"\nFrom: \"pranava ravindran (via Google Sheets)\" <drive-shares-dm-noreply@google.com> | Date: Sun, 26 Jul 2026 04:43:42 +0000\nPranava Ravindran has shared a Google Sheet named \"full time\" and invited the recipient to edit it.\n\nSubject: Entry-level Talent Recruiting - Cisco Application Status Update\nFrom: Cisco@myworkday.com | Date: Thu, 23 Jul 2026 17:55:55 +0000\nCisco is providing an application status update for the Software Engineer I (Full Time) – Devices Technology Group – United States position.\n\nSubject: Important information about your application to Twitch\nFrom: no-reply@twitchjobs.tv | Date: Fri, 17 Jul 2026 02:24:00 +0000\nTwitch is informing Pranava that they will not be moving forward with their application for the Software Engineer I opening at this time.\n\nSubject: Thank you for exploring careers at Yahoo!\nFrom: Workday at Yahoo <ouryahoo@myworkday.com> | Date: Thu, 16 Jul 2026 07:18:42 +0000\nYahoo is thanking Pranava for their interest in the Software Engineer, SRE Tooling & Reliability Platforms role and informing them that another candidate has been selected.\n\nSubject: Regarding your application for: R20602 Associate Software Engineer\nFrom: massmutual@myworkday.com | Date: Mon, 13 Jul 2026 19:40:34 +0000\nMassMutual is informing Pranava Ravindran that they have decided to pursue another candidate for the Associate Software Engineer position.\n\nSubject: Your Application Status for the Position of AI Engineer – 31152145\nFrom: Abbott-HR-Workday <abbott@myworkday.com> | Date: Mon, 13 Jul 2026 17:10:35 +0000\nAbbott is informing Pranava Ravindran about the status of their application for the AI Engineer position.\n\nSubject: Pranava, I think this job might be right for you!\nFrom: \"Phil @ ZipRecruiter\" <phil@ziprecruiter.com> | Date: Mon, 13 Jul 2026 16:56:24 +0000\nPhil from ZipRecruiter is suggesting a new job at Healthcare Services Group, Inc. to Pranava.\n\nSubject: Application Status Change for Software Engineer I\nFrom: CROSSLINK PROFESSIONAL TAX SOLUTIONS LLC <donotreply@msg.paycomonline.com> | Date: Mon, 13 Jul 2026 16:20:23 +0000\nCrossLink Professional Tax Solutions LLC is providing an update on the application status for the Software Engineer I position.\n\nSubject: Your IBM Application Status\nFrom: IBM Talent Acquisition <talent@ibm.com> | Date: Sun, 12 Jul 2026 14:50:04 +0000\nIBM Talent Acquisition is regretfully informing Pranava Ravindran that they have decided to move forward with other candidates for the Software Developer - Austin, TX position.\n\nSubject: Pranava, I think this job might be right for you!\nFrom: \"Phil @ ZipRecruiter\" <phil@ziprecruiter.com> | Date: Sun, 12 Jul 2026 11:08:36 +0000\nPhil from ZipRecruiter is suggesting a new job at Dell to Pranava.\n\nSubject: Get the best of Google AI at work with Gemini Enterprise app\nFrom: Google Cloud <googlecloud@google.com> | Date: Tue, 07 Jul 2026 10:04:22 -0700\nGoogle Cloud is promoting the Gemini Enterprise app, offering a 30-day free trial.\n\nSubject: Thank you for considering Citi!\nFrom: Citi Human Resources <citi@myworkday.com> | Date: Mon, 6 Jul 2026 17:36:53 +0000\nCiti Human Resources is thanking Pranava for their interest in the Application Development Intermediate Programmer Analyst role and informing them that they will not be moving forward with their application.\n\nSubject: MITRE: Thank you for your interest in the Early Career Software Developer job\nFrom: MITRE Workday <mitre@myworkday.com> | Date: Thu, 2 Jul 2026 04:42:41 +0000\nMITRE is thanking the recipient for their interest in the Early Career Software Developer job.\n\nSubject: CloudFit Software - Software Development Engineer\nFrom: CloudFit Software <recruiting+418978789-85c312ba@applytojob.com> | Date: Tue, 30 Jun 2026 16:28:43 +0000\nCloudFit Software is informing Pranava that they will not be moving forward with their application for the Software Development Engineer position.\n\nSubject: Security alert\nFrom: Google <no-reply@accounts.google.com> | Date: Tue, 30 Jun 2026 05:35:00 GMT\nGoogle is sending a security alert about a new sign-in to the account pranava.ravindran19@gmail.com."
+                }
+              }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_agent",
+        "user_id": "test_user",
+        "state": {}
+      }
+    }
+  ]
+}

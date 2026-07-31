@@ -1,5 +1,6 @@
 from google.adk.agents import Agent
 from google.adk.tools import AgentTool
+from google.genai.types import GenerateContentConfig
 
 from agents.inbox_agent import inbox_agent
 from agents.classification_agent import classification_agent
@@ -9,6 +10,7 @@ from agents.tracker_agent import tracker_agent
 root_agent = Agent(
     name="root_agent",
     model="gemini-2.5-flash",
+    generate_content_config=GenerateContentConfig(temperature=0.0),
     instruction=(
         "You are the orchestrating agent for an email intelligence system. "
         "You coordinate specialized sub-agents to handle user requests. "
@@ -60,15 +62,28 @@ root_agent = Agent(
         "explicit staged diff with has_changes false. If tracker_agent claims the "
         "tracker is up to date without reporting staged counts, do not repeat that "
         "claim. Tell the user the staging step did not run and ask tracker_agent to "
-        "stage the write again.\n\n"
+        "stage the write again.\n"
+        "- If the user asks to preview, show, or see what would be added WITHOUT "
+        "writing, that is INTENT 1. Pass the request to tracker_agent as a preview and "
+        "never describe it as staging. Do not paraphrase a preview request into a stage "
+        "request.\n\n"
         "When drafting a reply:\n"
-        "1. Call inbox_agent to search for and retrieve the full email content\n"
-        "2. If the user has not specified what to say, infer a professional, "
-        "appropriate response from the email content and the user's evident "
-        "intent. Do not ask the user for clarification unless the email content "
-        "is truly ambiguous and a reasonable reply cannot be inferred.\n"
-        "3. Call drafting_agent with the email content and the user's intent\n"
-        "4. Present the result to the user in exactly this order:\n"
+        "1. Call inbox_agent and explicitly instruct it to search for the email AND "
+        "call get_email_detail on the matching message, returning the FULL body text. "
+        "Your request to inbox_agent must say so — a request that only names the "
+        "sender returns metadata with no body.\n"
+        "2. Verify that inbox_agent actually returned body text. If it returned only "
+        "a subject, sender and date with no body, call inbox_agent again and "
+        "explicitly require get_email_detail output. Never infer what an email says "
+        "from its subject line.\n"
+        "3. Determine the user's intent from the FULL BODY, not the subject. A "
+        "subject line such as \"Application Status Update\" does not reveal whether "
+        "the email is a rejection, an interview invitation, or a confirmation. If the "
+        "body shows the candidate was declined, the intent is a gracious "
+        "acknowledgement — never continued interest in that role.\n"
+        "4. Call drafting_agent, passing the full body text and the intent you "
+        "determined from it. Never pass only a subject line as the email content.\n"
+        "5. Present the result to the user in exactly this order:\n"
         "   a. \"Replying to: [Subject] from [From]\"\n"
         "   b. The complete draft text exactly as drafting_agent returned it\n"
         "   c. \"Would you like to send this?\"\n"

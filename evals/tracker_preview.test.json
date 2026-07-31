@@ -1,0 +1,45 @@
+{
+  "eval_set_id": "tracker_preview",
+  "name": "Tracker preview eval set",
+  "description": "Verifies that a preview request lists what would be added to the tracker without staging or writing anything. NOTE: the trajectory assertion here can only confirm a single tracker_agent call from root_agent's perspective — whether tracker_agent called stage_write internally happens inside the sub-agent and is not visible in root_agent's trajectory. The assertion that nothing was staged rests entirely on the judged final response. As of the last three live runs against this inbox, this case FAILS on substance in every run, in three different ways: run 1 produced only the intro sentence with no entry list and no 'nothing staged' statement (looked like a truncated response); run 2 listed all 34 entries correctly but ended with 'Would you like to add these to your tracker?' instead of stating nothing had been staged or written; run 3 passed a paraphrased request ('INTENT 1: stage new entries from June and July 2026' — root_agent's own paraphrase, not verbatim) to tracker_agent and got back 'I found 34 new entries and no status changes. Would you like to write these to the sheet?', which uses the diff-report vocabulary (new entries / status changes) that tracker_agent's own instructions specify only for INTENT 2 (search-and-stage), not INTENT 1 (preview-only) — suggesting stage_write may actually have been called on that run despite the user explicitly saying 'don't write anything'. This cannot be confirmed from root_agent's trajectory alone (see note above), only inferred from the response wording. This reference is left as the correct, unweakened behavior (explicitly state nothing was staged/written) and the case is left FAILING/flaky rather than patched to match any of the three real outputs.",
+  "eval_cases": [
+    {
+      "eval_id": "preview_does_not_stage",
+      "conversation": [
+        {
+          "invocation_id": "preview_does_not_stage-1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "show me what you would add to my job application tracker from june and july 2026, but don't write anything"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here is what I would add for June and July 2026, based on application emails I found. Nothing has been staged or written to the sheet:\n\n1. 2026-06-05 — Acme Corp — Software Engineer — Applied\n2. 2026-06-18 — Globex — Backend Engineer I — Interviewing\n3. 2026-07-02 — Initech — Associate Data Engineer — Rejected\n\nLet me know if you'd like me to actually stage or write these."
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "name": "tracker_agent",
+                "args": { "request": "show me what you would add to my job application tracker from june and july 2026, but don't write anything" }
+              }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_agent",
+        "user_id": "test_user",
+        "state": {}
+      }
+    }
+  ]
+}

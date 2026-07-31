@@ -1,0 +1,45 @@
+{
+  "eval_set_id": "inbox_listing",
+  "name": "Inbox listing eval set",
+  "description": "Verifies that a simple request to list recent emails is delegated to inbox_agent alone, without routing through classification.",
+  "eval_cases": [
+    {
+      "eval_id": "inbox_lists_recent_emails",
+      "conversation": [
+        {
+          "invocation_id": "inbox_lists_recent_emails-1",
+          "user_content": {
+            "parts": [
+              {
+                "text": "show me my 5 most recent emails"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "Here are your 5 most recent emails, each listing the subject, sender, and date:\n\n1. \"Quarterly Report Due\" from jane@example.com on 2026-07-29\n2. \"Team Lunch Friday\" from bob@example.com on 2026-07-28\n3. \"Your invoice is ready\" from billing@example.com on 2026-07-27\n4. \"Interview confirmation\" from recruiting@example.com on 2026-07-26\n5. \"Weekly newsletter\" from news@example.com on 2026-07-25"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "name": "inbox_agent",
+                "args": { "request": "show me my 5 most recent emails" }
+              }
+            ],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "eval_agent",
+        "user_id": "test_user",
+        "state": {}
+      }
+    }
+  ]
+}
