@@ -1,0 +1,255 @@
+# Email Intelligence Agent
+
+A multi-agent system built on Google's Agent Development Kit (ADK) that reads a
+Gmail inbox, classifies and prioritises messages, drafts replies for review, and
+maintains a job application tracker in Google Sheets.
+
+Built with Gemini 2.5 Flash, the Gmail API, and the Google Sheets API.
+
+---
+
+## What it does
+
+```
+You: what emails need my attention right now
+You: draft a reply to the most recent email from Cisco
+You: show me what you would add to my tracker from june and july 2026, but don't write anything
+You: update my job application tracker with application emails from june and july 2026
+```
+
+The tracker is the substantial piece. Given a date range, it searches Gmail,
+reads every matching message in full, groups them by company and role, determines
+each application's current status and original application date, computes a diff
+against the existing sheet, shows that diff, and writes only after confirmation.
+
+---
+
+## Architecture
+
+```
+                        root_agent
+                    (orchestration only)
+                            |
+        +-----------+-------+--------+-------------+
+        |           |                |             |
+   inbox_agent  classification   drafting      tracker_agent
+                   _agent        _agent
+        |           |                |             |
+   list_emails   classify_email  draft_reply   search_email_ids
+   search_emails                               get_email_detail
+   get_email_detail                            stage_write
+                                               commit_write
+```
+
+`root_agent` holds no tools of its own and never touches email directly.
+Sub-agents are connected via `AgentTool` rather than ADK's `sub_agents`
+parameter, which keeps `root_agent` in control of the conversation and lets it
+chain calls — routing "what needs my attention" through `inbox_agent` to fetch
+and then `classification_agent` to prioritise.
+
+Both `root_agent` and `tracker_agent` run at `temperature=0`.
+
+### Why the tracker's tools are shaped the way they are
+
+**`search_email_ids` returns message IDs and nothing else.** No subject, sender,
+date, or preview text. Earlier versions returned metadata, and the agent
+repeatedly classified emails from that metadata instead of opening them —
+recording subject lines as job titles and inventing dates. Instructions telling
+it to open every email were not sufficient. Removing the alternative was.
+
+**`get_email_detail` extracts bodies from HTML when no plain-text part exists.**
+Roughly 40% of recruiting email in this inbox is HTML-only, with the content
+nested several levels deep in the MIME tree. A plain-text-only extractor returns
+an empty string for all of them, and the agent then classifies from whatever
+fragment it can find — which produced a confidently wrong "Applied" for an email
+that was plainly a rejection. Bodies are truncated to 2000 characters; status is
+always established in the opening paragraph, and untruncated bodies caused
+rate-limit failures.
+
+**`stage_write` and `commit_write` are separate tools.** `stage_write` resolves
+entries against the sheet, computes a diff, and persists the resolved plan to
+`pending_write.json` without writing anything. `commit_write` takes **no
+arguments** — it applies the persisted plan. Nothing large passes back through
+the model between turns, so what you approve is what gets written.
+
+---
+
+## The confirmation flow
+
+```
+You: update my job application tracker with application emails from june and july 2026
+
+  ... reads 48 emails ...
+
+  [stage_write] 5 new, 3 status changes, 28 unchanged, 0 duplicates in batch,
+                0 existing rows not seen, 0 invalid entries
+
+Agent: 5 new applications, 3 status changes. Write these to the sheet?
+
+You: yes
+
+  Done: 5 added, 3 updated
+```
+
+If nothing would change, it reports that and does not ask.
+
+Confirmation lives in `root_agent`, not in `tracker_agent`. A sub-agent invoked
+via `AgentTool` completes and terminates — it cannot pause mid-invocation and
+wait for an answer, because the reply arrives at a fresh invocation with no
+memory of the first. Staging to disk is what makes the two-turn flow work.
+
+---
+
+## Validation
+
+Correctness checks run in code rather than being requested of the model, because
+the model does not reliably follow them. Every run reports:
+
+| Check | Catches |
+| --- | --- |
+| `duplicates in batch` | The same application extracted twice — merged, keeping earliest date and latest status |
+| `existing rows not seen` | Rows already in the sheet that this run never examined |
+| `invalid entries` | Missing fields, malformed dates, statuses outside the permitted four, dates outside the searched range |
+| fetch refusal | Entries staged without any email having been read |
+
+Two of these are **observed rather than self-reported**, and that distinction
+matters.
+
+An earlier version asked the agent to pass in how many emails it had searched and
+fetched. The agent omitted those arguments, the check silently did not run, and a
+live run staged 35 entirely fabricated job applications — plausible-looking
+company names, zero emails read. Nothing reached the sheet only because the
+confirmation step was waiting.
+
+The tools now keep their own records: `search_email_ids` records what it
+returned, `get_email_detail` records what it fetched, and `stage_write` compares
+them directly, refusing to stage anything if no emails were read. The searched
+date range is likewise parsed from the issued query rather than taken from the
+agent, after an agent-supplied range caused three legitimate applications to be
+discarded.
+
+A guard that asks the component it is guarding for evidence is not a guard.
+
+Other invariants enforced in code: sorting happens in `write_to_sheet`, not in
+the agent; company and role are matched on a normalised comparison key so name
+drift between runs doesn't create duplicate rows.
+
+---
+
+## Testing
+
+Two layers, testing different things.
+
+**`tests/` — pytest. Fast, no network.** 39 unit tests covering normalisation,
+company and role matching, entry validation, duplicate merging, and sorting. Each
+regression test is labelled with the bug it encodes.
+
+```
+python -m pytest tests/ -v
+```
+
+**`evals/` — ADK evaluation. Slow, live API calls.** Verifies agent behaviour:
+which sub-agents get called, and whether the response makes the right claims.
+Cases live in per-case subdirectories, each with its own criteria config:
+
+```
+adk eval eval_agent evals/tracker/tracker_staging.test.json --config_file_path=evals/tracker/test_config.json --print_detailed_results
+```
+
+See `evals/README.md` for all cases and their configs.
+
+The split exists because ADK's response scoring cannot check extraction
+correctness. Its default metric is ROUGE word overlap against a reference, which
+cannot distinguish a correct status from an incorrect one — a run with every
+status wrong would still score highly, because the company names match. Status
+and date correctness is covered by the unit tests instead. Where a case needs
+semantic judgement, `final_response_match_v2` (an LLM judge) is used rather than
+word overlap.
+
+Cases that assert behaviour inside a sub-agent are judged on the response rather
+than the tool trajectory, because `root_agent`'s trajectory shows which
+sub-agents it called but not which tools those sub-agents used.
+
+---
+
+## Setup
+
+Requires Python 3.11+, a Google Cloud project with the Gmail and Sheets APIs
+enabled, and a Gemini API key.
+
+```
+git clone <repo>
+cd email-agent
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+export GOOGLE_API_KEY="your-key"
+```
+
+Place your OAuth client secret at `credentials.json` in the project root. Both
+`credentials.json` and the generated `token.pickle` are gitignored and must never
+be committed.
+
+Set `_SPREADSHEET_ID` in `tools/write_to_sheet.py` to your own sheet. The
+`Tracker` tab expects headers in row 2 (Date, Company, Role, Link, Source,
+Status) with data beginning at row 3.
+
+```
+python main.py
+```
+
+First run opens a browser for OAuth consent. Scopes requested are
+`gmail.readonly` and `spreadsheets` — the system can read email and write to
+sheets, and cannot send, modify, or delete mail.
+
+If authentication fails after a long idle period, delete `token.pickle` and
+rerun.
+
+---
+
+## Project layout
+
+```
+agent.py                    root_agent — orchestration and confirmation flow
+main.py                     CLI entry point and session loop
+auth.py                     OAuth, cached service handle
+agent_spec.yaml             behavioural contract for the system
+
+agents/
+  inbox_agent.py            fetching and searching
+  classification_agent.py   priority, action items, deadlines
+  drafting_agent.py         reply drafting, outcome-aware
+  tracker_agent.py          job application extraction
+
+tools/
+  list_emails.py            recent inbox messages
+  search_emails.py          query search with metadata (inbox_agent only)
+  search_email_ids.py       query search, IDs only (tracker_agent only)
+  get_email_detail.py       full message, MIME-tree body extraction
+  classify_email.py
+  draft_reply.py
+  write_to_sheet.py         normalisation, matching, staging, commit
+
+tests/                      pytest unit tests
+evals/                      ADK evaluation cases, one subdirectory per case
+eval_agent/                 thin wrapper exposing root_agent to `adk eval`
+```
+
+---
+
+## Engineering notes
+
+`ENGINEERING_LOG.md` records the significant bugs in this project — the symptom,
+the theories that turned out to be wrong and the evidence that ruled each one
+out, the actual cause, and the fix.
+
+The most instructive one: a job application showed as "Applied" when its only
+email was a rejection. Four rounds of work went into the status-classification
+logic before a debug print revealed the email's extracted body was zero
+characters long. The classification was correct; the input was empty. Fixing
+extraction silently corrected seven other applications that had been wrong
+without anyone noticing.
+
+`FUTURE_WORK.md` covers deferred work and known limitations, with the reasoning
+for each deferral.

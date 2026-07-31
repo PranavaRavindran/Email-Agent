@@ -20,6 +20,9 @@ def classify_email(email: dict) -> dict:
           - action_items: list of specific actions required (may be empty)
           - deadline: deadline string if mentioned, else empty string
     """
+    subject = email.get("subject", "")
+    print(f"[classify_email] {subject[:60]}")
+
     client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
 
     body_text = email.get("body") or email.get("snippet", "")
@@ -61,17 +64,26 @@ Examples:
 
 Respond ONLY with the JSON object, no markdown fences or extra text."""
 
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-        ),
-    )
+    try:
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+            ),
+        )
+    except Exception as e:
+        print(f"[classify_email] ERROR {type(e).__name__}: {e}")
+        return {
+            "classification": "fyi",
+            "action_items": [],
+            "deadline": "",
+        }
 
     try:
         result = json.loads(response.text.strip())
     except (json.JSONDecodeError, AttributeError):
+        print("[classify_email] ERROR could not parse response")
         result = {
             "classification": "fyi",
             "action_items": [],
