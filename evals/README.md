@@ -11,13 +11,14 @@ package (see `eval_agent/`) that exposes the real `root_agent` from the
 project root's `agent.py` under the module name ADK expects; nothing about
 the agent itself is duplicated or changed.
 
-`routing/routing_classification.test.json` and `drafting/drafting_rejection.test.json`
-each use their own config, since both omit `tool_trajectory_avg_score` (see
-the per-case notes below):
+`routing/routing_classification.test.json`, `drafting/drafting_rejection.test.json`,
+and `tracker/tracker_staging.test.json` each use their own config, since all
+three omit `tool_trajectory_avg_score` (see the per-case notes below):
 
 ```
 adk eval eval_agent evals/routing/routing_classification.test.json --config_file_path=evals/routing/test_config.json --print_detailed_results
 adk eval eval_agent evals/drafting/drafting_rejection.test.json --config_file_path=evals/drafting/test_config.json --print_detailed_results
+adk eval eval_agent evals/tracker/tracker_staging.test.json --config_file_path=evals/tracker/test_config.json --print_detailed_results
 ```
 
 ## Why this isn't run automatically
@@ -38,7 +39,7 @@ notes below.
 
 | File | eval_id | Asserts |
 | --- | --- | --- |
-| `tracker_staging.test.json` | `tracker_stages_without_committing` | A tracker update request calls `tracker_agent` once, stages new entries, and never commits them — the confirm-before-write guarantee. |
+| `tracker/tracker_staging.test.json` | `tracker_stages_without_committing` | A tracker update request calls `tracker_agent` once, stages new entries, and never commits them — the confirm-before-write guarantee. Judged with `tracker/test_config.json` (`final_response_match_v2` only — no trajectory score; see note below). |
 | `inbox_listing.test.json` | `inbox_lists_recent_emails` | A plain "show me my recent emails" request is answered by a single `inbox_agent` call — no unnecessary routing through classification. |
 | `routing/routing_classification.test.json` | `attention_request_routes_through_classification` | A "what needs my attention" request produces a response with emails grouped into priority categories (Urgent, Action Needed, FYI) — output only `classification_agent`'s involvement can produce, since `inbox_agent` alone would return a flat, uncategorized list. Judged with `routing/test_config.json` (`final_response_match_v2` only — no trajectory score; see note below). |
 | `drafting/drafting_rejection.test.json` | `rejection_reply_does_not_express_continued_interest` | A reply drafted to a rejection email is a gracious acknowledgement that does NOT express continued interest in the declined role or ask about next steps for it. Guards against the drafting agent judging outcome from the subject line instead of the body. This is the most valuable case in the set. Judged with `drafting/test_config.json` (`final_response_match_v2` only — no trajectory score; see note below). |
@@ -71,10 +72,10 @@ The two substance-level bugs previously tracked here are both now fixed:
   suggesting `stage_write` may have actually run despite the user saying
   "don't write anything". This preview-staging bug is also fixed.
 
-Routing and drafting are both now judged on response content only
-(`final_response_match_v2`), not trajectory — see the per-case notes below
-for why exact trajectory matching was unsuitable for each regardless of the
-fixes above.
+Routing, drafting, and tracker staging are all now judged on response content
+only (`final_response_match_v2`), not trajectory — see the per-case notes
+below for why exact trajectory matching was unsuitable for each regardless of
+the fixes above.
 
 `routing/routing_classification.test.json`'s problem was never about
 `root_agent`'s behavior — it was that `classification_agent`'s args embed
@@ -93,6 +94,16 @@ reliably reproducible across runs. It lives in `evals/drafting/` with its
 own `test_config.json`, scoring only `final_response_match_v2`; see the
 case's `description` field for the full detail, including the false-positive
 note on the old buggy reply.
+
+`tracker/tracker_staging.test.json`'s trajectory assertion was removed for a
+similar reason: `root_agent` paraphrases the user's request when delegating
+to `tracker_agent` (e.g. "INTENT 2: Stage a write to the job application
+tracker with application emails from June and July 2026" instead of the
+verbatim request), so an exact match on the `request` arg passed to
+`tracker_agent` cannot reliably pass. It lives in `evals/tracker/` with its
+own `test_config.json`, scoring only `final_response_match_v2`; see the
+case's `description` field for detail. The staged-not-written assertion
+rests entirely on the judged response.
 
 ## What the trajectory assertion can and can't see
 

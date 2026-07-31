@@ -11,6 +11,18 @@ _TAG_RE = re.compile(r"<[^>]+>")
 _HORIZONTAL_WS_RE = re.compile(r"[ \t]+")
 _BLANK_LINES_RE = re.compile(r"\n\s*\n+")
 
+_FETCHED_IDS = set()
+
+
+def get_fetched_ids() -> set:
+    """Returns the set of email ids fetched since the last reset."""
+    return set(_FETCHED_IDS)
+
+
+def reset_fetched_ids() -> None:
+    """Clears the fetch record."""
+    _FETCHED_IDS.clear()
+
 
 def get_email_detail(email_id: str) -> dict:
     """Gets the full content of a specific email by its Gmail message ID.
@@ -38,6 +50,8 @@ def get_email_detail(email_id: str) -> dict:
         body = body[:_MAX_BODY_LENGTH] + "...[truncated]"
 
     print(f"[get_email_detail] {email_id} {headers.get('Subject', '')} {len(body)}")
+
+    _FETCHED_IDS.add(email_id)
 
     return {
         "email": {

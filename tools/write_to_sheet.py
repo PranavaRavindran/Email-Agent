@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 from googleapiclient.discovery import build
 
 from auth import get_gmail_service
+from tools.get_email_detail import get_fetched_ids
+from tools.search_email_ids import get_last_search_count, get_last_search_range
 
 _SPREADSHEET_ID = "1NlX-ND9UIQkalliOqsw4eb9ItcMNllo-dkuEwWzvI3g"
 _READ_RANGE = "Tracker!A3:F"
@@ -56,7 +58,8 @@ def _validate_entry(entry: dict, range_start: str = "", range_end: str = ""):
     entry alongside the reason.
 
     If both range_start and range_end are provided, the entry's date must
-    fall within that inclusive range.
+    fall within that inclusive range. Both bounds are inclusive, since Gmail
+    returns boundary-date messages for after:/before: queries.
     """
     company = entry.get("company")
     role = entry.get("role")
@@ -347,27 +350,19 @@ def _apply(sheets_service, updates: list, rows_to_append: list, last_data_row: i
     return {"rows_added": rows_added, "rows_updated": rows_updated}
 
 
-def stage_write(
-    entries: list,
-    ids_searched: int = 0,
-    ids_fetched: int = 0,
-    range_start: str = "",
-    range_end: str = "",
-) -> dict:
+def stage_write(entries: list) -> dict:
     """Validates and resolves job application entries against the Tracker
     sheet and stages the result for confirmation, without writing anything to
     the sheet yet.
 
+    The searched date range is not taken from the caller - it is derived from
+    the most recent search_email_ids query via get_last_search_range(). Both
+    bounds are treated as inclusive, since Gmail returns boundary-date
+    messages for after:/before: queries. If either bound is empty (the query
+    had no date bounds), the date-range check is skipped entirely.
+
     Args:
         entries: List of dicts, each with keys: date, company, role, source, status.
-        ids_searched: Number of ids search_email_ids returned, for the
-            fetch-completeness check.
-        ids_fetched: Number of get_email_detail calls actually made, for the
-            fetch-completeness check.
-        range_start: Inclusive start of the searched date range, YYYY-MM-DD.
-            If both range_start and range_end are provided, entries dated
-            outside the range are rejected as invalid.
-        range_end: Inclusive end of the searched date range, YYYY-MM-DD.
 
     Returns:
         A dict with new_rows_count, status_changes_count, unchanged_count, the
@@ -375,10 +370,27 @@ def stage_write(
         themselves), duplicates_in_batch, unseen_rows, invalid_entries,
         fetch_gap (if fewer emails were fetched than were searched), and a
         has_changes flag. If entries is empty, returns an error dict instead
-        and does not write pending_write.json.
+        and does not write pending_write.json. If a search was run but no
+        emails were fetched at all, returns an error dict instead and stages
+        nothing, since entries could not have been derived from email
+        content.
     """
     if not entries:
         return {"error": "No entries were provided; stage_write requires at least one entry."}
+
+    searched = get_last_search_count()
+    fetched = len(get_fetched_ids())
+    if searched > 0 and fetched == 0:
+        print(f"[stage_write] REFUSED — {searched} ids searched, 0 emails read")
+        return {
+            "error": (
+                f"No emails were read. search_email_ids returned {searched} ids but "
+                "get_email_detail was never called, so any entries provided were not "
+                "derived from email content. Fetch every id before staging."
+            )
+        }
+
+    range_start, range_end = get_last_search_range()
 
     invalid_entries = []
     valid_entries = []
@@ -398,10 +410,10 @@ def stage_write(
     unchanged_count = resolved["unchanged_count"]
     unseen_rows = resolved["unseen_rows"]
     fetch_gap = None
-    if ids_searched > 0 and ids_fetched < ids_searched:
-        fetch_gap = {"ids_searched": ids_searched, "ids_fetched": ids_fetched}
+    if searched > 0 and fetched < searched:
+        fetch_gap = {"ids_searched": searched, "ids_fetched": fetched}
         print(
-            f"[stage_write] WARNING fetched {ids_fetched} of {ids_searched} emails "
+            f"[stage_write] WARNING fetched {fetched} of {searched} emails "
             "— some were not read"
         )
 
