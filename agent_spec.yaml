@@ -153,6 +153,7 @@ agents:
       - get_email_detail
       - stage_write
       - commit_write
+      - find_application_date
     intents:
       preview: >
         Return the entries that would be written, without staging or writing.
@@ -233,13 +234,18 @@ agents:
         - STATUS and DATE are determined independently and never influence each
           other.
         - DATE is the application confirmation email's date if one exists in
-          the group. Otherwise it is the earliest email in the group, flagged
-          approximate.
+          the group.
+        - If no confirmation email exists in the group, tracker_agent calls
+          find_application_date with the group's company, role, and earliest
+          known date, at most once per group. If it finds a confirmation, that
+          date is used. If not, the entry falls back to the earliest email in
+          the group, flagged approximate.
         - Each entry's date must come from an email in that entry's own group.
           Dates are never copied or inferred from another entry.
-        - No backward search is performed for confirmation emails outside the
-          requested range. When no confirmation exists in range, the date is
-          approximate. See future_work for the removed two-pass design.
+        - The backward lookback window is computed in code, not by the model:
+          max(90 days, primary search range length), capped at 180 days. See
+          find_application_date in the tools section and future_work for
+          history.
       output:
         - Entries are sorted oldest first. (Enforced in code; see below.)
         - Always report what was done after acting.
@@ -283,6 +289,23 @@ tools:
   draft_reply:
     purpose: Reply generation for review.
     used_by: [drafting_agent]
+  find_application_date:
+    purpose: >
+      Backward search for an application confirmation email predating the
+      primary search range, used only when a company+role group has no
+      confirmation email in range.
+    used_by: [tracker_agent]
+    contract: >
+      Never calls search_email_ids and never touches
+      _LAST_SEARCH_AFTER/_LAST_SEARCH_BEFORE — both would corrupt the fetch
+      record and date-range validation stage_write depends on. Instead it
+      reads the primary range via get_last_search_range() and calls the
+      Gmail API directly. The lookback window is computed in code: max(90
+      days, primary range length), capped at 180 days. Matched emails are
+      still read via get_email_detail, so they add to the fetch record and
+      can only help, never hurt, stage_write's refusal check. On any
+      internal failure it returns found=false rather than raising, so a
+      lookup failure can never break a tracker run.
   stage_write:
     purpose: Validate and resolve entries against the sheet; stage without writing.
     used_by: [tracker_agent]
@@ -372,12 +395,16 @@ future_work:
     - Evaluation suite built from the current verified-stable baseline.
     - Deployment to Vertex AI Agent Engine.
     - Similarity-based matching to replace pattern-based normalisation.
-  removed_by_decision:
+  implemented:
     two_pass_lookback: >
       A conditional backward search for confirmation emails predating the
-      requested range was specified but never implemented, and its absence was
-      not detected until debug output proved only one search ever ran. Removed
-      from the design rather than built: no row is currently incorrect because
-      of it, and the accuracy gain applies only to applications older than the
-      search window. Recorded here because a spec describing unbuilt behaviour
-      is worse than a spec describing a simpler system honestly.
+      requested range is now implemented as the find_application_date tool.
+      It is called at most once per company+role group, only when no
+      confirmation email was found in range. The lookback window is computed
+      in code — max(90 days, primary search range length), capped at 180 days
+      — rather than left to the model, following the earlier failure where an
+      instruction-only version of this behaviour was specified but never
+      actually executed. It deliberately does not call search_email_ids, so it
+      cannot overwrite the fetch record or date-range bounds that stage_write's
+      validation depends on; it queries the Gmail API directly and reads
+      matches via get_email_detail instead.

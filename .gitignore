@@ -6,5 +6,4 @@ token.pickle
 pending_write.json
 .claude/
 eval_agent/.adk/
-eval_agent/.adk/
-eval_agent/.adk/
+run_log.jsonl

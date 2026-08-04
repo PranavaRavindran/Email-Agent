@@ -1,0 +1,394 @@
+# Engineering Log
+
+A record of every significant bug in this project: the symptom, the theories that
+turned out to be wrong, the actual cause, and the fix. Written to be re-read.
+
+The single most useful thing here is the pattern of **wrong theories**. Most of
+them were reasonable, and every one was killed by evidence rather than by
+argument.
+
+---
+
+## The presenting bug: a rejection recorded as "Applied"
+
+**Symptom.** Cisco's only email in the requested range was a rejection. The
+tracker wrote the row as `Applied`.
+
+### Three theories, all wrong
+
+**Theory 1 — the fix never reached the running code.** Spec-first development's
+classic failure: `agent_spec.yaml` updated, the instruction string in
+`tracker_agent.py` never regenerated from it.
+*Killed by:* `grep` found the rule present in the code. (It turned out to be
+missing from the *spec* — the opposite direction. A real problem, but not this one.)
+
+**Theory 2 — grouping split the company into two rows**, one `Applied` from a
+confirmation, one `Rejected` from the rejection.
+*Killed by:* there was exactly one row.
+
+**Theory 3 — the agent was classifying from search previews, not full bodies.**
+*Killed at the time by:* 48 `get_email_detail` calls in the log.
+*Note:* this theory was correct, just premature — it resurfaced later as a real
+failure. See "The snippet shortcut" below.
+
+### First real cause: the keyword checklist
+
+The instruction mapped literal phrases to statuses:
+
+```
+'thank you for applying', 'received your application'  = Applied
+'regret', 'not moving forward', 'other candidates'     = Rejected
+```
+
+Cisco's email opens with *"Thank you for applying to the Software Engineer I..."* —
+an exact match on `Applied`. Its rejection is worded *"unable to move you forward"*
+and *"large pool of candidates"* — matching **none** of the `Rejected` phrases.
+
+So it wasn't first-match-wins. The `Rejected` rule never fired at all.
+
+**Fix.** Replaced the lookup table with semantic judgment: read the body, decide
+what outcome it communicates. This immediately corrected nine other companies.
+
+**Cisco stayed wrong.**
+
+### Actual root cause: empty bodies
+
+A debug print showing extracted body length gave it away — Cisco extracted
+**0 characters**. A standalone script dumped the MIME tree:
+
+```
+multipart/mixed
+└── multipart/related
+    └── text/html    13,700 chars
+```
+
+No `text/plain` part anywhere. `_extract_body` only searched for `text/plain`, so
+it returned empty. The agent's entire knowledge of that email was the snippet,
+which reads *"Thank you for applying."*
+
+**Calling it Applied was the correct answer to the wrong input.**
+
+**Roughly 20 of 48 emails were affected.** Most still landed on the right status
+because their preview text happened to be accurate. Cisco was the one case where
+the first 150 characters said the opposite of the email.
+
+**Fix.** Recursive walk for `text/plain`, fall back to `text/html` at any depth,
+strip tags and entities. Cisco → `Rejected`. Allstate, OCLC, Cornerstone,
+GE Vernova, Doowii, CrossLink and SAIC silently corrected too — all wrong before,
+none of them noticed.
+
+**This is the story worth telling in an interview.** The visible symptom was one
+wrong status. The cause was a silent data-extraction failure two layers down,
+affecting 40% of inputs, and mostly masked by lucky guesses.
+
+---
+
+## Everything else, in order
+
+### 2. Invented status values
+Navan came back as `Hold` — not one of the four permitted statuses. The field was
+unconstrained, so the model free-formed.
+**Fix:** require exactly `Applied` / `Rejected` / `Interviewing` / `Offer`.
+
+### 3. Sort order flipped between runs
+Same instruction, opposite result. Sorting is deterministic work with one right
+answer.
+**Fix:** moved out of the agent and into `write_to_sheet`.
+
+### 4. Context overload
+Some bodies ran 7,000+ characters, and ADK resends accumulated context every step.
+Caused a 429 rate-limit crash in one run and, in another, `write_to_sheet` never
+firing at all while the agent claimed success.
+**Fix:** truncate bodies to 2,000 characters — status is always established in the
+opening paragraph.
+
+### 5. Duplicate rows on re-run
+Matching used company + role + date, but all three drift between runs:
+`CrossLink Professional Tax Solutions LLC` vs. without the `LLC`,
+`AXS – Charlotte, NC` vs. `AXS`, Abbott's date moving by a month.
+**Fix:** a `_normalize()` comparison key — lowercase, strip parentheticals, legal
+suffixes, location tails, punctuation — and dropping date from the match entirely.
+
+**The concept worth naming: a comparison key.** Keep the original data intact for
+display; derive a lossy key purely for matching. The key should discard exactly
+the variation you consider meaningless and nothing more. Both sides of the
+comparison must be normalized, or you've moved the mismatch rather than removed it.
+
+### 6. Role paraphrasing — and two overcorrections
+The agent summarized `Beginner Coding Assessment (NCG) – Desktop Application` down
+to `Software Engineer`, which merged two distinct IBM applications into one row.
+**An application vanished from the sheet.**
+
+*Overcorrection 1:* required verbatim extraction **including requisition numbers**.
+Worse — those numbers appear in some emails for an application and not others, so
+single applications split into two rows and four dates collapsed onto the same day.
+
+*Overcorrection 2:* a merge rule mentioning "location" was read as permission to
+**delete** locations from role titles. `Associate Data Engineer 2026- FutureNow -
+Chicago` became `Associate Data Engineer`.
+
+**Landing spot:** keep the descriptive title, strip only ID numbers, state
+explicitly that the merge rule governs *comparison between entries*, never editing
+a title, and when merging keep the longer title.
+
+### 7. Run-to-run instability
+Visa produced a different status on nearly every run. Three distinct causes, only
+one of which was actually randomness:
+
+- **Underspecified rule.** An assessment invite fit neither `Applied` nor
+  `Interviewing` under the existing rules. Not randomness — a gap. Fixed by
+  deciding: assessments and phone screens are `Interviewing`.
+- **Sampling.** Set `temperature=0`. *(Note: this was believed applied for several
+  rounds before a code read revealed it had never landed. Verify, don't assume.)*
+- **Wording drift.** Absorbed in code by `_normalize` rather than fought.
+
+### 8. Feedback surveys — a correction from the user
+First rule said to exclude any email containing a feedback survey. But companies
+often attach a survey to a rejection or confirmation — so that rule would discard
+the status along with the survey.
+**Corrected to:** exclude only when the feedback request is the *entire* point of
+the email. Structurally the same mistake as the original Cisco bug: classifying on
+a surface feature instead of what the email communicates.
+
+### 9. The snippet shortcut (theory 3, confirmed)
+One run had **zero** `get_email_detail` calls and still produced statuses. The
+agent classified straight from search-result previews, and exactly the four
+formerly-empty-body companies flipped to `Applied`.
+
+*First fix:* removed `snippet` from `search_emails` output. **Insufficient** —
+results still carried Subject, From and Date, and the agent classified from those
+instead. Evidence: it recorded `Entry-level Talent Recruiting` (Cisco's subject
+line) as a job title and invented a June 20 date that exists in no email. Five
+fabricated rows, three status regressions.
+
+*Real fix:* a separate `search_email_ids` tool returning **IDs only**. No subject,
+no sender, no date. With nothing to guess from, opening each email is the only path
+to any content.
+
+**The principle:** the instruction *said* to open every email; nothing *stopped*
+the agent from skipping it. Make the shortcut impossible rather than forbidden.
+
+### 10. The silent 10-entry truncation
+Recurred across three sessions and was blamed on the agent "stopping early" each
+time. A code read found:
+
+```python
+def search_email_ids(query: str, max_results: int = 10) -> dict:
+```
+
+**The default was 10.** Every time the agent omitted `max_results`, it silently
+received 10 ids and dutifully processed all of them.
+
+**Lesson:** three rounds of blaming model behaviour for a default parameter value.
+Read the code before theorizing about the agent.
+
+### 11. Fabricated success
+A run read all 48 emails and then announced *"The tracker is already up to date"* —
+with no `stage_write` call. It did the work and invented the conclusion.
+
+Every validation guard lives *inside* `stage_write`, so none of them fired.
+
+**Fix, in two layers:** `tracker_agent` is told it cannot know whether anything
+changed without calling `stage_write`; and `root_agent` is told not to repeat an
+"up to date" claim that didn't come with staged counts.
+
+### 12. Dedup that destroyed the answer
+The duplicate guard kept the *first* of two entries for the same application.
+Entries are sorted oldest-first, so "first" meant the application confirmation and
+the later **rejection was discarded** — putting Abbott and CrossLink back to
+`Applied`. The exact class of bug the whole session began with.
+
+**The code did what was specified; the specification was wrong.**
+
+**Fix:** merge rather than drop — earliest date, latest status, longest company and
+role strings. This mirrors the rule the agent itself already follows: date and
+status are determined independently.
+
+### 13. Outcome-blind reply drafting
+Asked to draft a reply to the Cisco rejection, the drafting agent wrote *"I remain
+very interested in this opportunity and look forward to any further information."*
+
+`tracker_agent` held all the semantic-classification rules; `drafting_agent` had
+none of them. Same root cause as the original bug, in a different agent.
+
+**Fix:** outcome-awareness rules in `drafting_agent` — determine what the email
+communicates before drafting, and never express continued interest in a role that
+was declined.
+
+### 14. Regression introduced while fixing something else
+Raising `max_results` from 10 to 100 correctly fixed the tracker's truncation — and
+also applied to `list_emails`, which serves user-facing inbox requests. "What emails
+need my attention" became: fetch 100 emails, one metadata call each, classify all
+100. Long runs and rate limiting.
+**Fix:** 100 for the tracker's search only; 20 for the user-facing tools.
+
+### 15. Two claims that were asserted and later disproven
+- **"There is a consistent first-command failure."** Based on misreading one
+  session's three commands as three separate sessions. There was one failure, once.
+- **"The backward lookback (PASS 2) is working."** Based on a row dated before the
+  requested range. The `search_emails` debug print later proved only one search ever
+  runs; that row came from the primary search catching the boundary date.
+
+---
+
+## Transferable lessons
+
+**Verify the input before debugging the reasoning.** Four rounds went into status
+logic that was already correct. The agent was reasoning correctly over empty input.
+
+**A *stably* wrong answer points at a rule; a *flickering* one points at missing
+information.** Cisco was wrong identically every run while Figma and Hypha changed
+between runs — all three had empty bodies, but Cisco's snippet was confidently
+misleading and the others' were merely thin.
+
+**Silent partial failures are the dangerous ones.** Nothing errored. 40% of emails
+extracted nothing, and most still produced the right answer by luck.
+
+**Instructions are requests; code is a guarantee.** Sorting, deduplication, and
+forcing the full-body read were all fixed by removing the agent's discretion.
+"Please call this tool" failed. "There is no other source of data" worked.
+
+**Constrain the output vocabulary.** `Hold` disappeared the moment the field had a
+fixed set of permitted values.
+
+**Don't overfit to the failing example.** Quoting one company's exact sentences
+into the instruction, and demanding verbatim requisition numbers, both taught the
+agent about a single email at the cost of the general case.
+
+**Guards should report zeroes, not stay silent.** `0 duplicates, 0 unseen, 0
+invalid` is a result. No output is indistinguishable from a check that didn't run.
+
+**Read the code before theorizing about the model.** The 10-entry truncation, the
+missing `temperature=0`, and the un-applied HTML fix were all discovered by reading
+files, after multiple rounds of behavioural speculation.
+
+---
+
+## Questions worth being able to answer cold
+
+1. Why did the semantic-classification fix correct nine companies but not Cisco?
+2. Why was removing `snippet` a better fix than writing a stronger instruction —
+   and why wasn't removing it from `search_emails` enough?
+3. Why do status and date have to be determined independently?
+4. Why does `_normalize` run on the existing sheet rows as well as the new entries?
+5. Why is deduplication done in code rather than by the model — and under what
+   circumstances would that answer flip?
+6. Why does `commit_write()` take no arguments?
+
+---
+
+## Later findings (evaluation phase)
+
+These emerged after the tracker was stable, while building the eval suite. Two
+are among the most serious bugs in the project's history, and both were caught
+by evals rather than by manual testing.
+
+### 16. Thirty-five fabricated job applications
+
+During an eval run, the tracker agent searched, received 48 message IDs, opened
+**none of them**, and staged 35 entirely invented applications — ExampleCorp,
+GlobalTech, Quantum Labs, BioGen Pharmaceuticals — with plausible dates and
+statuses. Nothing reached the sheet only because the confirmation step was
+waiting for approval.
+
+**Why removing the snippet made this possible.** Earlier, removing preview text
+from search results forced full-body reads. But when the agent skips the fetch
+entirely, it now has *nothing* to anchor on — so instead of misclassifying from
+a snippet, it invents from scratch. The shortcut bug became a hallucination bug.
+
+**Why the guard did not fire.** The fetch-completeness check compared
+`ids_searched` to `ids_fetched` — but both were **parameters the agent passed**.
+It omitted them, they defaulted to 0, and the check silently skipped itself.
+
+**The principle: a guard that asks the component it guards for evidence is not
+a guard.** Fixed by having the tools keep their own records — `search_email_ids`
+records what it returned, `get_email_detail` records every ID actually fetched —
+and `stage_write` compares them directly, refusing to stage if nothing was read.
+
+**The refusal changed behaviour, not just output.** In a later run the agent
+again tried to stage without reading; `stage_write` returned
+`REFUSED — 48 ids searched, 0 emails read`; the agent then went back, fetched
+all 48 emails, and staged correctly. The guard did not merely block bad data —
+it redirected the agent onto the correct path mid-run.
+
+### 17. The date-range guard was silently deleting SAIC
+
+A guard added to catch fabricated dates (an entry once appeared dated April 13
+from a June–July search) took `range_start` and `range_end` as parameters — from
+the agent. The agent passed "June and July" per its reading of the request, but
+the query it actually issued was `after:2026/05/31`, which legitimately returns
+May 31 emails. Three real applications dated 2026-05-31 were rejected as
+out-of-range; SAIC, whose only email was that date, vanished entirely.
+
+Same flaw as #16 in a different spot: trusting the agent's account of what it
+did instead of observing it. Fixed by parsing the date bounds out of the actual
+issued query, treating both bounds as inclusive.
+
+**Note:** this guard, not model flakiness, explains most of the intermittent
+"SAIC missing" runs previously attributed to tail-of-list extraction loss.
+
+### 18. root_agent never fetched the email it was drafting a reply to
+
+The drafting eval caught root_agent asking inbox_agent for "most recent email
+from Cisco", receiving **subject, sender, and date with no body**, then
+fabricating an intent — "express continued interest in the position" — for what
+was actually a rejection. The reply said exactly that.
+
+The earlier drafting fix had hardened the wrong layer: drafting_agent was taught
+to judge from the body, but root_agent never gave it one. Fixed by requiring
+root_agent to explicitly demand get_email_detail output, verify body text was
+actually returned, and derive intent from the body — never the subject.
+
+### 19. Preview was staging
+
+A preview request produced INTENT 2 vocabulary ("Would you like to write these
+to the sheet?"), indicating stage_write ran — leaving an unapproved plan on disk
+that a later "yes" could commit. Cause: a rule added for INTENTs 2 and 3 read
+"You MUST call stage_write... You cannot know any of those things otherwise" —
+phrased absolutely, contradicting INTENT 1's "Do NOT call stage_write". The
+model resolved the contradiction the wrong way. Fixed by scoping the rule ("For
+THIS intent only...") and having preview state plainly that nothing was staged.
+
+**Lesson: absolute language in one rule overrides scoped language in another.**
+When two instructions conflict, the model does not reliably pick the one you
+meant.
+
+### 20. What the eval tooling itself taught
+
+- **Exact trajectory matching cannot express this system's behaviour.** Tool
+  arguments embed volatile content — 48 changing message IDs, full email
+  bodies, freeform request paraphrases — and ADK's matcher compares arguments
+  exactly with no wildcard. Cases asserting sub-agent behaviour moved to
+  LLM-judged response matching instead.
+- **root_agent's trajectory shows *which sub-agents* were called, never which
+  tools they used.** AgentTool calls are opaque from outside. "Exactly one
+  tracker_agent call" turned out to be the *right* root-level assertion: a
+  second call would mean auto-committing without confirmation.
+- **The LLM judge (final_response_match_v2) once scored a buggy reply 1.0
+  against a correct reference.** Better than ROUGE, not a substitute for
+  reading the output on cases that matter.
+- **ROUGE scored two responses making materially different claims at 0.55.**
+  Word overlap cannot distinguish "staged" from "written".
+
+### 21. Classification returned nothing, twice
+
+"What emails need my attention" fetched 20 emails and produced no output at
+all — the chain died silently after the fetch. classify_email makes one Gemini
+call per email with no error handling; any single failure aborted everything.
+Fixed with per-email try/except returning a safe FYI fallback, plus an explicit
+never-return-empty rule. Output format also fixed: one item per line, FYI
+reported as a count only — the user asked what needs attention, and FYI is by
+definition what does not.
+
+---
+
+## Additional questions worth answering cold
+
+7. Why is "observed, not self-reported" the design rule for guards — and which
+   two bugs does it summarise?
+8. Why did removing the snippet from search results convert a misclassification
+   bug into a fabrication bug?
+9. Why is "exactly one tracker_agent call" the correct root-level trajectory
+   assertion for the confirmation guarantee?
+10. Why did the preview intent start staging, and what does it imply about how
+    conflicting instructions resolve?

@@ -12,6 +12,7 @@ _HORIZONTAL_WS_RE = re.compile(r"[ \t]+")
 _BLANK_LINES_RE = re.compile(r"\n\s*\n+")
 
 _FETCHED_IDS = set()
+_BODY_CACHE = {}
 
 
 def get_fetched_ids() -> set:
@@ -20,8 +21,9 @@ def get_fetched_ids() -> set:
 
 
 def reset_fetched_ids() -> None:
-    """Clears the fetch record."""
+    """Clears the fetch record and the body cache."""
     _FETCHED_IDS.clear()
+    _BODY_CACHE.clear()
 
 
 def get_email_detail(email_id: str) -> dict:
@@ -34,6 +36,11 @@ def get_email_detail(email_id: str) -> dict:
         A dict with key 'email' containing id, from, to, subject, date,
         and body (plain text).
     """
+    if email_id in _BODY_CACHE:
+        print(f"[get_email_detail] {email_id} (cached)")
+        _FETCHED_IDS.add(email_id)
+        return _BODY_CACHE[email_id]
+
     service = get_gmail_service()
 
     msg = service.users().messages().get(
@@ -53,7 +60,7 @@ def get_email_detail(email_id: str) -> dict:
 
     _FETCHED_IDS.add(email_id)
 
-    return {
+    result = {
         "email": {
             "id": email_id,
             "from": headers.get("From", ""),
@@ -63,6 +70,8 @@ def get_email_detail(email_id: str) -> dict:
             "body": body,
         }
     }
+    _BODY_CACHE[email_id] = result
+    return result
 
 
 def _find_part_data(payload: dict, mime_type: str):

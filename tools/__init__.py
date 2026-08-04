@@ -4,7 +4,8 @@ from .classify_email import classify_email
 from .draft_reply import draft_reply
 from .search_email_ids import search_email_ids
 from .search_emails import search_emails
-from .write_to_sheet import stage_write, commit_write
+from .write_to_sheet import stage_write, commit_write, preview_resolve
+from .find_application_date import find_application_date
 
 __all__ = [
     "list_emails",
@@ -15,4 +16,6 @@ __all__ = [
     "search_emails",
     "stage_write",
     "commit_write",
+    "preview_resolve",
+    "find_application_date",
 ]

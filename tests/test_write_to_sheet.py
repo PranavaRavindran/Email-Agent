@@ -1,8 +1,11 @@
+from unittest.mock import patch
+
 from write_to_sheet import (
     _company_matches,
     _keys_match,
     _merge_duplicates,
     _normalize,
+    _resolve_dates,
     _sort_key,
     _validate_entry,
 )
@@ -253,6 +256,37 @@ class TestMergeDuplicates:
         assert len(deduped) == 2
         assert duplicates == []
 
+    def test_regression_truncated_company_form_merges_with_full_form(self):
+        # Regression: the agent emitted the short company form
+        # ("CrossLink") for one email and the full legal form for another,
+        # for the identical role. _merge_duplicates previously grouped on
+        # an exact normalized key only, so these sailed through as two
+        # separate new rows instead of merging like sheet matching
+        # (_keys_match) would have caught.
+        short = _entry(company="CrossLink", role="Software Engineer I", date="2026-06-01", status="Applied")
+        long = _entry(
+            company="CrossLink Professional Tax Solutions",
+            role="Software Engineer I",
+            date="2026-06-02",
+            status="Applied",
+        )
+
+        deduped, duplicates = _merge_duplicates([short, long])
+
+        assert len(deduped) == 1
+        assert deduped[0]["company"] == "CrossLink Professional Tax Solutions"
+        assert deduped[0]["role"] == "Software Engineer I"
+        assert len(duplicates) == 1
+
+    def test_company_prefix_must_break_on_whitespace_boundary_not_merged(self):
+        ibm = _entry(company="IBM", role="Software Engineer", date="2026-06-01", status="Applied")
+        ibmx = _entry(company="IBMX", role="Software Engineer", date="2026-06-02", status="Applied")
+
+        deduped, duplicates = _merge_duplicates([ibm, ibmx])
+
+        assert len(deduped) == 2
+        assert duplicates == []
+
     def test_entry_order_otherwise_preserved(self):
         e1 = _entry(company="Zeta", role="Eng", date="2026-06-01", status="Applied")
         e2 = _entry(company="Acme", role="PM", date="2026-06-02", status="Applied")
@@ -289,3 +323,99 @@ class TestSortKey:
 
         assert entries[0]["company"] == "Good"
         assert {entries[1]["company"], entries[2]["company"]} == {"Missing", "Bad"}
+
+
+# ---------------------------------------------------------------------------
+# _resolve_dates
+# ---------------------------------------------------------------------------
+
+class TestResolveDates:
+    @patch("write_to_sheet.is_confirmation_email")
+    @patch("write_to_sheet.get_email_detail")
+    @patch("write_to_sheet.find_application_date")
+    def test_observed_confirmation_skips_lookback(self, mock_find, mock_get_detail, mock_is_confirmation):
+        mock_get_detail.return_value = {"email": {"subject": "s", "body": "b"}}
+        mock_is_confirmation.return_value = True
+        entry = _entry(source_email_ids=["id-1"])
+
+        resolved = _resolve_dates([entry])
+
+        mock_find.assert_not_called()
+        assert resolved[0]["date"] == entry["date"]
+
+    @patch("write_to_sheet.is_confirmation_email")
+    @patch("write_to_sheet.get_email_detail")
+    @patch("write_to_sheet.find_application_date")
+    def test_no_observed_confirmation_runs_lookback(self, mock_find, mock_get_detail, mock_is_confirmation):
+        mock_get_detail.return_value = {"email": {"subject": "s", "body": "b"}}
+        mock_is_confirmation.return_value = False
+        mock_find.return_value = {"found": True, "date": "2026-05-01", "email_id": "abc"}
+        entry = _entry(source_email_ids=["id-1"], date="2026-06-04")
+
+        resolved = _resolve_dates([entry])
+
+        mock_find.assert_called_once()
+        assert resolved[0]["date"] == "2026-05-01"
+        assert resolved[0]["date_approximate"] is False
+
+    @patch("write_to_sheet.is_confirmation_email")
+    @patch("write_to_sheet.get_email_detail")
+    @patch("write_to_sheet.find_application_date")
+    def test_lookback_passes_source_text_from_the_entrys_own_group(
+        self, mock_find, mock_get_detail, mock_is_confirmation
+    ):
+        # The group's own source email (the status update that triggered
+        # this lookback) is passed through as source_text so
+        # find_application_date can extract a requisition/job identifier
+        # from it and reject a weak match belonging to a different
+        # requisition at the same company (Fix 1/Fix 4). It must be reused
+        # from the fetch _has_observed_confirmation already did, not
+        # fetched a second time.
+        mock_get_detail.return_value = {
+            "email": {"subject": "Update on req 203991", "body": "Requisition Number: 203991"}
+        }
+        mock_is_confirmation.return_value = False
+        mock_find.return_value = {"found": True, "date": "2026-05-01", "email_id": "abc"}
+        entry = _entry(source_email_ids=["id-1"], date="2026-06-04")
+
+        _resolve_dates([entry])
+
+        mock_find.assert_called_once_with(
+            company=entry["company"],
+            role=entry["role"],
+            before_date=entry["date"],
+            source_text="Update on req 203991 Requisition Number: 203991",
+        )
+        mock_get_detail.assert_called_once_with("id-1")
+
+    @patch("write_to_sheet.find_application_date")
+    def test_lookback_not_found_keeps_date_and_flags_approximate(self, mock_find):
+        mock_find.return_value = {"found": False, "date": "", "email_id": ""}
+        entry = _entry(source_email_ids=[], date="2026-06-04")
+
+        resolved = _resolve_dates([entry])
+
+        assert resolved[0]["date"] == "2026-06-04"
+        assert resolved[0]["date_approximate"] is True
+
+    @patch("write_to_sheet.find_application_date")
+    def test_lookback_exception_leaves_entry_unchanged_and_approximate(self, mock_find):
+        mock_find.side_effect = RuntimeError("boom")
+        entry = _entry(source_email_ids=[], date="2026-06-04")
+
+        resolved = _resolve_dates([entry])
+
+        assert resolved[0]["date"] == "2026-06-04"
+        assert resolved[0]["date_approximate"] is True
+
+    @patch("write_to_sheet.find_application_date")
+    def test_missing_source_email_ids_key_treated_as_no_confirmation(self, mock_find):
+        mock_find.return_value = {"found": True, "date": "2026-05-01", "email_id": "abc"}
+        entry = _entry()
+        assert "source_email_ids" not in entry
+
+        resolved = _resolve_dates([entry])
+
+        mock_find.assert_called_once()
+        assert resolved[0]["date"] == "2026-05-01"
+        assert resolved[0]["date_approximate"] is False
