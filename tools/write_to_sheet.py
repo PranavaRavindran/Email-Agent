@@ -10,6 +10,12 @@ from tools.find_application_date import find_application_date, is_confirmation_e
 from tools.get_email_detail import get_email_detail, get_fetched_ids
 from tools.search_email_ids import get_last_search_count, get_last_search_range
 
+_FETCH_COMPLETENESS_ERROR = (
+    "Only {fetched} of {searched} searched emails were read. Entries cannot "
+    "be derived from emails that were not opened. Fetch every id returned by "
+    "search_email_ids before staging."
+)
+
 _SPREADSHEET_ID = "1NlX-ND9UIQkalliOqsw4eb9ItcMNllo-dkuEwWzvI3g"
 _READ_RANGE = "Tracker!A3:F"
 _FIRST_DATA_ROW = 3
@@ -538,9 +544,19 @@ def preview_resolve(entries: list) -> dict:
     Returns:
         A dict with 'entries': the resolved and merged list, each entry
         including a date_approximate flag, and 'merged_count': how many
-        duplicate groups were merged.
+        duplicate groups were merged. If a search was run but fewer emails
+        were fetched than were searched, returns an error dict instead and
+        does not resolve or merge anything, for the same reason stage_write
+        refuses in that situation: entries could not have been derived from
+        email content that was never read.
     """
     print(f"[preview_resolve] resolving {len(entries)} entries")
+
+    searched = get_last_search_count()
+    fetched = len(get_fetched_ids())
+    if searched > 0 and fetched < searched:
+        print(f"[preview_resolve] REFUSED — {searched} ids searched, {fetched} emails read")
+        return {"error": _FETCH_COMPLETENESS_ERROR.format(fetched=fetched, searched=searched)}
 
     invalid_entries = []
     valid_entries = []
@@ -605,13 +621,7 @@ def stage_write(entries: list) -> dict:
             ids_fetched=fetched,
             refused=True,
         )
-        return {
-            "error": (
-                f"Only {fetched} of {searched} searched emails were read. Entries cannot "
-                "be derived from emails that were not opened. Fetch every id returned by "
-                "search_email_ids before staging."
-            )
-        }
+        return {"error": _FETCH_COMPLETENESS_ERROR.format(fetched=fetched, searched=searched)}
 
     if searched > 0 and len(entries) > fetched:
         print(f"[stage_write] REFUSED — {len(entries)} entries from {fetched} emails read")

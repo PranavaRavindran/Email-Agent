@@ -8,6 +8,7 @@ from write_to_sheet import (
     _resolve_dates,
     _sort_key,
     _validate_entry,
+    preview_resolve,
 )
 
 
@@ -409,6 +410,35 @@ class TestResolveDates:
         assert resolved[0]["date_approximate"] is True
 
     @patch("write_to_sheet.find_application_date")
+    def test_exception_on_one_entry_in_a_batch_does_not_drop_the_others(self, mock_find):
+        # Regression: a transient error (e.g. a 503 mid-scan) during one
+        # entry's lookback must never cause that entry - or any other entry
+        # in the same batch - to vanish from the result. The failing entry
+        # should still appear, flagged date_approximate True.
+        def side_effect(company, role, before_date, source_text):
+            if company == "CrossLink":
+                raise RuntimeError("503 UNAVAILABLE")
+            return {"found": True, "date": "2026-05-01", "email_id": "abc"}
+
+        mock_find.side_effect = side_effect
+        entries = [
+            _entry(company="Acme Corp", source_email_ids=[], date="2026-06-01"),
+            _entry(company="CrossLink", source_email_ids=[], date="2026-06-02"),
+            _entry(company="SAIC", source_email_ids=[], date="2026-06-03"),
+        ]
+
+        resolved = _resolve_dates(entries)
+
+        assert len(resolved) == 3
+        assert {entry["company"] for entry in resolved} == {"Acme Corp", "CrossLink", "SAIC"}
+
+        by_company = {entry["company"]: entry for entry in resolved}
+        assert by_company["CrossLink"]["date"] == "2026-06-02"
+        assert by_company["CrossLink"]["date_approximate"] is True
+        assert by_company["Acme Corp"]["date_approximate"] is False
+        assert by_company["SAIC"]["date_approximate"] is False
+
+    @patch("write_to_sheet.find_application_date")
     def test_missing_source_email_ids_key_treated_as_no_confirmation(self, mock_find):
         mock_find.return_value = {"found": True, "date": "2026-05-01", "email_id": "abc"}
         entry = _entry()
@@ -419,3 +449,59 @@ class TestResolveDates:
         mock_find.assert_called_once()
         assert resolved[0]["date"] == "2026-05-01"
         assert resolved[0]["date_approximate"] is False
+
+
+# ---------------------------------------------------------------------------
+# preview_resolve - fetch-completeness guard
+# ---------------------------------------------------------------------------
+
+class TestPreviewResolveFetchCompleteness:
+    @patch("write_to_sheet.get_fetched_ids")
+    @patch("write_to_sheet.get_last_search_count")
+    def test_refuses_when_fetched_count_less_than_searched_count(self, mock_searched, mock_fetched):
+        mock_searched.return_value = 51
+        mock_fetched.return_value = {f"id-{i}" for i in range(16)}
+
+        result = preview_resolve([_entry()])
+
+        assert "error" in result
+        assert "16" in result["error"]
+        assert "51" in result["error"]
+        assert "entries" not in result
+
+    @patch("write_to_sheet._resolve_dates")
+    @patch("write_to_sheet.get_fetched_ids")
+    @patch("write_to_sheet.get_last_search_count")
+    def test_does_not_resolve_or_merge_on_refusal(self, mock_searched, mock_fetched, mock_resolve_dates):
+        mock_searched.return_value = 10
+        mock_fetched.return_value = {"id-1", "id-2"}
+
+        preview_resolve([_entry()])
+
+        mock_resolve_dates.assert_not_called()
+
+    @patch("write_to_sheet.find_application_date")
+    @patch("write_to_sheet.get_fetched_ids")
+    @patch("write_to_sheet.get_last_search_count")
+    def test_proceeds_when_fetched_count_meets_searched_count(self, mock_searched, mock_fetched, mock_find):
+        mock_searched.return_value = 1
+        mock_fetched.return_value = {"id-1"}
+        mock_find.return_value = {"found": False, "date": "", "email_id": ""}
+
+        result = preview_resolve([_entry(source_email_ids=[])])
+
+        assert "error" not in result
+        assert "entries" in result
+
+    @patch("write_to_sheet.find_application_date")
+    @patch("write_to_sheet.get_fetched_ids")
+    @patch("write_to_sheet.get_last_search_count")
+    def test_no_search_yet_does_not_refuse(self, mock_searched, mock_fetched, mock_find):
+        mock_searched.return_value = 0
+        mock_fetched.return_value = set()
+        mock_find.return_value = {"found": False, "date": "", "email_id": ""}
+
+        result = preview_resolve([_entry(source_email_ids=[])])
+
+        assert "error" not in result
+        assert "entries" in result

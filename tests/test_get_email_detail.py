@@ -45,7 +45,7 @@ class TestBodyCache:
 
     def test_second_fetch_of_same_id_hits_cache_not_gmail(self, monkeypatch):
         call_log = []
-        monkeypatch.setattr(ged, "get_gmail_service", lambda: _fake_service(call_log))
+        monkeypatch.setattr(ged, "get_thread_local_gmail_service", lambda: _fake_service(call_log))
 
         first = ged.get_email_detail("id-1")
         second = ged.get_email_detail("id-1")
@@ -55,7 +55,7 @@ class TestBodyCache:
 
     def test_cache_hit_still_records_fetched_id(self, monkeypatch):
         call_log = []
-        monkeypatch.setattr(ged, "get_gmail_service", lambda: _fake_service(call_log))
+        monkeypatch.setattr(ged, "get_thread_local_gmail_service", lambda: _fake_service(call_log))
 
         ged.get_email_detail("id-1")
         assert "id-1" in ged.get_fetched_ids()
@@ -65,7 +65,7 @@ class TestBodyCache:
 
     def test_reset_fetched_ids_clears_cache_too(self, monkeypatch):
         call_log = []
-        monkeypatch.setattr(ged, "get_gmail_service", lambda: _fake_service(call_log))
+        monkeypatch.setattr(ged, "get_thread_local_gmail_service", lambda: _fake_service(call_log))
 
         ged.get_email_detail("id-1")
         ged.reset_fetched_ids()
@@ -75,7 +75,7 @@ class TestBodyCache:
 
     def test_different_ids_are_not_conflated(self, monkeypatch):
         call_log = []
-        monkeypatch.setattr(ged, "get_gmail_service", lambda: _fake_service(call_log))
+        monkeypatch.setattr(ged, "get_thread_local_gmail_service", lambda: _fake_service(call_log))
 
         ged.get_email_detail("id-1")
         ged.get_email_detail("id-2")

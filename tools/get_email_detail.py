@@ -2,7 +2,7 @@ import base64
 import html
 import re
 
-from auth import get_gmail_service
+from auth import get_thread_local_gmail_service
 
 _MAX_BODY_LENGTH = 2000
 
@@ -36,12 +36,22 @@ def get_email_detail(email_id: str) -> dict:
         A dict with key 'email' containing id, from, to, subject, date,
         and body (plain text).
     """
+    return _fetch_one(email_id, quiet=False)
+
+
+def _fetch_one(email_id: str, quiet: bool = False) -> dict:
+    """Core single-email fetch/cache logic shared by get_email_detail and
+    get_emails_bulk. When quiet is True, the routine per-email progress
+    lines are suppressed - get_emails_bulk prints one aggregate summary for
+    the whole batch instead. The empty-body WARNING still prints regardless,
+    since it flags a real data problem rather than routine progress."""
     if email_id in _BODY_CACHE:
-        print(f"[get_email_detail] {email_id} (cached)")
+        if not quiet:
+            print(f"[get_email_detail] {email_id} (cached)")
         _FETCHED_IDS.add(email_id)
         return _BODY_CACHE[email_id]
 
-    service = get_gmail_service()
+    service = get_thread_local_gmail_service()
 
     msg = service.users().messages().get(
         userId="me",
@@ -56,7 +66,8 @@ def get_email_detail(email_id: str) -> dict:
     if len(body) > _MAX_BODY_LENGTH:
         body = body[:_MAX_BODY_LENGTH] + "...[truncated]"
 
-    print(f"[get_email_detail] {email_id} {headers.get('Subject', '')} {len(body)}")
+    if not quiet:
+        print(f"[get_email_detail] {email_id} {headers.get('Subject', '')} {len(body)}")
 
     _FETCHED_IDS.add(email_id)
 

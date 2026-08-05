@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import time
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 
@@ -15,6 +16,9 @@ _MIN_LOOKBACK_DAYS = 180
 _MAX_LOOKBACK_DAYS = 365
 _MAX_CANDIDATES_EXAMINED = 10
 _MAX_CANDIDATES_EXAMINED_BY_IDENTIFIER = 25
+
+_CLASSIFY_MAX_ATTEMPTS = 3
+_CLASSIFY_RETRY_BACKOFF_SECONDS = (1, 2, 4)
 
 _REQ_NUMBER_RE = re.compile(
     r"req(?:uisition)?\s*(?:id|number|no\.?|#)?\s*[:#]?\s*(\d{4,})",
@@ -370,24 +374,38 @@ newsletter subjects are application-related.
 
 Respond ONLY with the JSON object, no markdown fences or extra text."""
 
-    try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-            ),
-        )
-        result = json.loads(response.text.strip())
-    except Exception as e:
-        print(f"[find_application_date] ERROR classifying intent: {type(e).__name__}: {e}")
-        return {"application_related": False, "communicates_outcome": False, "feedback_only": False}
+    last_error = None
+    for attempt in range(1, _CLASSIFY_MAX_ATTEMPTS + 1):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                ),
+            )
+            result = json.loads(response.text.strip())
+            return {
+                "application_related": bool(result.get("application_related", False)),
+                "communicates_outcome": bool(result.get("communicates_outcome", False)),
+                "feedback_only": bool(result.get("feedback_only", False)),
+            }
+        except Exception as e:
+            last_error = e
+            if attempt < _CLASSIFY_MAX_ATTEMPTS:
+                backoff = _CLASSIFY_RETRY_BACKOFF_SECONDS[attempt - 1]
+                print(
+                    f"[find_application_date] WARNING classify intent attempt "
+                    f"{attempt}/{_CLASSIFY_MAX_ATTEMPTS} failed "
+                    f"({type(e).__name__}: {e}), retrying in {backoff}s"
+                )
+                time.sleep(backoff)
 
-    return {
-        "application_related": bool(result.get("application_related", False)),
-        "communicates_outcome": bool(result.get("communicates_outcome", False)),
-        "feedback_only": bool(result.get("feedback_only", False)),
-    }
+    print(
+        f"[find_application_date] ERROR classifying intent after "
+        f"{_CLASSIFY_MAX_ATTEMPTS} retries — treating as non-application-related: {last_error}"
+    )
+    return {"application_related": False, "communicates_outcome": False, "feedback_only": False}
 
 
 def is_confirmation_email(subject: str, body: str) -> bool:

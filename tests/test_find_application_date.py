@@ -1015,3 +1015,98 @@ class TestLookbackWindow:
 
         assert fad._MIN_LOOKBACK_DAYS == 180
         assert fad._MAX_LOOKBACK_DAYS == 365
+
+
+# ---------------------------------------------------------------------------
+# _classify_intent - retry on transient Gemini errors (Fix 1)
+#
+# Live evidence: two "ServerError: 503 UNAVAILABLE" errors during
+# _classify_intent calls silently caused a wrong match (GE Vernova) and two
+# missing entries (CrossLink, SAIC) in one run. These tests exercise the
+# actual retry loop inside _classify_intent, so they mock the genai client
+# directly rather than monkeypatching _classify_intent away like every other
+# test in this file.
+# ---------------------------------------------------------------------------
+
+class _FakeResponse:
+    def __init__(self, text):
+        self.text = text
+
+
+class _FakeModels:
+    def __init__(self, side_effects):
+        self._side_effects = list(side_effects)
+        self.call_count = 0
+
+    def generate_content(self, model, contents, config):
+        outcome = self._side_effects[self.call_count]
+        self.call_count += 1
+        if isinstance(outcome, Exception):
+            raise outcome
+        return _FakeResponse(outcome)
+
+
+class _FakeClient:
+    def __init__(self, side_effects):
+        self.models = _FakeModels(side_effects)
+
+
+class TestClassifyIntentRetry:
+    def _patch_client(self, monkeypatch, side_effects):
+        import find_application_date as fad
+
+        monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+        fake_client = _FakeClient(side_effects)
+        monkeypatch.setattr(fad.genai, "Client", lambda api_key: fake_client)
+        monkeypatch.setattr(fad.time, "sleep", lambda seconds: None)
+        return fake_client
+
+    def test_succeeds_after_two_transient_503s(self, monkeypatch, capsys):
+        import find_application_date as fad
+
+        error = Exception("503 UNAVAILABLE")
+        success_json = '{"application_related": true, "communicates_outcome": false, "feedback_only": false}'
+        fake_client = self._patch_client(monkeypatch, [error, error, success_json])
+
+        result = fad._classify_intent("Your application", "We received it")
+
+        assert result == {
+            "application_related": True,
+            "communicates_outcome": False,
+            "feedback_only": False,
+        }
+        assert fake_client.models.call_count == 3
+        assert "ERROR classifying intent after" not in capsys.readouterr().out
+
+    def test_falls_back_and_logs_after_three_failed_attempts(self, monkeypatch, capsys):
+        import find_application_date as fad
+
+        error = Exception("503 UNAVAILABLE")
+        fake_client = self._patch_client(monkeypatch, [error, error, error])
+
+        result = fad._classify_intent("Your application", "We received it")
+
+        assert result == {
+            "application_related": False,
+            "communicates_outcome": False,
+            "feedback_only": False,
+        }
+        assert fake_client.models.call_count == 3
+
+        out = capsys.readouterr().out
+        assert (
+            "[find_application_date] ERROR classifying intent after 3 retries "
+            "— treating as non-application-related: 503 UNAVAILABLE" in out
+        )
+
+    def test_does_not_retry_on_first_success(self, monkeypatch):
+        import find_application_date as fad
+
+        success_json = '{"application_related": true, "communicates_outcome": true, "feedback_only": false}'
+        fake_client = self._patch_client(monkeypatch, [success_json])
+
+        result = fad._classify_intent("Update", "Not moving forward")
+
+        assert result["application_related"] is True
+        assert result["communicates_outcome"] is True
+        assert fake_client.models.call_count == 1
