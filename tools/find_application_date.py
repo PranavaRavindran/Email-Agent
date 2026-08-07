@@ -4,6 +4,7 @@ import re
 import time
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
+from typing import Any
 
 import google.genai as genai
 from google.genai import types
@@ -79,7 +80,7 @@ def _sought_identifier(role: str, source_text: str) -> str:
     return match.group(0) if match else ""
 
 
-def _identifier_verdict(sought_ids: set, candidate_ids: set):
+def _identifier_verdict(sought_ids: set, candidate_ids: set) -> bool | None:
     """The hard identifier rule shared by _role_matches, _outcome_role_matches,
     and the weak-match guard in _select_confirmation.
 
@@ -393,7 +394,7 @@ Respond ONLY with the JSON object, no markdown fences or extra text."""
                     response_mime_type="application/json",
                 ),
             )
-            result = json.loads(response.text.strip())
+            result = json.loads(response.text.strip())  # type: ignore[union-attr]
             return {
                 "application_related": bool(result.get("application_related", False)),
                 "communicates_outcome": bool(result.get("communicates_outcome", False)),
@@ -438,7 +439,7 @@ def _looks_like_confirmation(subject: str, body: str, role: str, source_text: st
 def _select_confirmation(
     candidates: list,
     role: str,
-    before_date,
+    before_date: datetime | str,
     source_text: str = "",
     max_candidates: int = _MAX_CANDIDATES_EXAMINED,
 ) -> dict:
@@ -586,7 +587,7 @@ def _select_confirmation(
     return _end_of_scan()
 
 
-def _fetch_candidates(service, query: str, max_results: int) -> list:
+def _fetch_candidates(service: Any, query: str, max_results: int) -> list:
     """Runs a Gmail search and returns candidate dicts (id, date, subject)
     for each result with a parseable Date header."""
     response = (
@@ -711,7 +712,7 @@ def find_application_date(company: str, role: str, before_date: str, source_text
         return {"found": False, "date": "", "email_id": ""}
 
 
-def _parse_header_date(date_header: str):
+def _parse_header_date(date_header: str) -> datetime | None:
     try:
         parsed = parsedate_to_datetime(date_header)
     except (TypeError, ValueError):

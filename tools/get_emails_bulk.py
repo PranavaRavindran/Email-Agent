@@ -5,7 +5,7 @@ from tools.get_email_detail import _BODY_CACHE, _fetch_one
 _MAX_WORKERS = 8
 
 
-def get_emails_bulk(email_ids: list) -> dict:
+def get_emails_bulk(email_ids: list[str]) -> dict:
     """Fetches the full content of multiple emails in one call.
 
     Cached ids are returned immediately without re-fetching. Ids not yet

@@ -9,3 +9,33 @@ select = ["E", "F", "I", "UP", "B", "C4"]
 [tool.ruff.lint.per-file-ignores]
 "agents/*" = ["E501"]
 "tests/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+exclude = ["venv", "eval_agent/.adk", ".pytest_cache"]
+
+[[tool.mypy.overrides]]
+module = ["googleapiclient.*", "google_auth_httplib2", "google_auth_oauthlib.*", "httplib2"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# tests/ import these bare (via pytest.ini's `pythonpath = . tools`) rather
+# than as `tools.*`; mypy has no equivalent runtime sys.path hook, so these
+# are unresolvable without duplicating tools/ onto mypy's own search path
+# (which conflicts with the `tools.*` package mypy already sees from root).
+module = ["get_email_detail", "write_to_sheet", "find_application_date"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Dynamic importlib loading (eval_agent/agent.py) is a pattern mypy can't
+# verify; the file is out of scope for this pass (see repo constraints).
+module = "eval_agent.agent"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+# Pre-existing test fixture default (candidate_id: str = None); tests/ is
+# out of scope for this pass beyond removing dead imports.
+module = "test_find_application_date"
+no_implicit_optional = false

@@ -1,10 +1,15 @@
 import os
 import pickle
 import threading
+from typing import Any
 
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+
+# googleapiclient.discovery.build() returns a dynamically generated Resource
+# type that untyped stubs make impractical to annotate precisely.
+GmailService = Any
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -15,18 +20,18 @@ _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _CREDENTIALS_FILE = os.path.join(_BASE_DIR, "credentials.json")
 _TOKEN_FILE = os.path.join(_BASE_DIR, "token.pickle")
 
-_service = None
+_service: GmailService | None = None
 _thread_local = threading.local()
 
 
-def get_gmail_service():
+def get_gmail_service() -> GmailService:
     global _service
     if _service is None:
         _service = _build_service()
     return _service
 
 
-def get_thread_local_gmail_service():
+def get_thread_local_gmail_service() -> GmailService:
     """Returns a Gmail service instance private to the calling thread.
 
     googleapiclient's build() wires up httplib2 as the default transport,
@@ -44,14 +49,14 @@ def get_thread_local_gmail_service():
     return _thread_local.service
 
 
-def initialize_gmail_service():
+def initialize_gmail_service() -> GmailService:
     """Run OAuth flow eagerly and cache the service. Call this at startup."""
     global _service
     _service = _build_service()
     return _service
 
 
-def _build_service():
+def _build_service() -> GmailService:
     creds = None
 
     if os.path.exists(_TOKEN_FILE):

@@ -57,7 +57,7 @@ async def run_agent():
                         print(f"\nAgent: {part.text}\n")
 
 
-def main():
+def main() -> None:
     if not os.environ.get("GOOGLE_API_KEY"):
         print("Error: GOOGLE_API_KEY environment variable is not set.")
         sys.exit(1)

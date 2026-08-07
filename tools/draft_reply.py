@@ -39,4 +39,4 @@ any explanation. The user will review this draft before deciding to send it."""
         contents=prompt,
     )
 
-    return {"draft": response.text.strip()}
+    return {"draft": response.text.strip()}  # type: ignore[union-attr]

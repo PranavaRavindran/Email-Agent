@@ -11,8 +11,8 @@ _TAG_RE = re.compile(r"<[^>]+>")
 _HORIZONTAL_WS_RE = re.compile(r"[ \t]+")
 _BLANK_LINES_RE = re.compile(r"\n\s*\n+")
 
-_FETCHED_IDS = set()
-_BODY_CACHE = {}
+_FETCHED_IDS: set[str] = set()
+_BODY_CACHE: dict[str, dict] = {}
 
 
 def get_fetched_ids() -> set:
@@ -93,7 +93,7 @@ def _fetch_one(email_id: str, quiet: bool = False) -> dict:
     return result
 
 
-def _find_part_data(payload: dict, mime_type: str):
+def _find_part_data(payload: dict, mime_type: str) -> str | None:
     """Recursively searches the entire MIME tree for a part with the given
     mimeType, at any depth, and returns its raw body data if present."""
     if payload.get("mimeType", "") == mime_type:

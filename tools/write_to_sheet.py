@@ -59,7 +59,9 @@ def _normalize(text: str) -> str:
     return text
 
 
-def _validate_entry(entry: dict, range_start: str = "", range_end: str = ""):
+def _validate_entry(
+    entry: dict, range_start: str = "", range_end: str = ""
+) -> tuple[dict, str | None]:
     """Validates a single incoming entry.
 
     Returns a (cleaned_entry, reason) tuple. reason is None if the entry is
@@ -179,7 +181,7 @@ def _keys_match(company_a: str, role_a: str, company_b: str, role_b: str) -> boo
     return role_a == role_b and _company_matches(company_a, company_b)
 
 
-def _sort_key(entry):
+def _sort_key(entry: dict) -> tuple[int, datetime]:
     try:
         return (0, datetime.fromisoformat(entry["date"].strip()))
     except (KeyError, ValueError, AttributeError):
@@ -297,7 +299,7 @@ def _merge_duplicates(valid_entries: list) -> tuple:
     two groups whose roles match exactly and whose company keys satisfy
     _company_matches are unioned together.
     """
-    groups = {}
+    groups: dict[tuple[str, str], list[dict]] = {}
     group_order = []
     for entry in valid_entries:
         key = (_normalize(entry["company"]), _normalize(entry["role"]))
@@ -324,7 +326,7 @@ def _merge_duplicates(valid_entries: list) -> tuple:
             if key_a[1] == key_b[1] and _company_matches(key_a[0], key_b[0]):
                 union(key_a, key_b)
 
-    merged_groups = {}
+    merged_groups: dict[tuple[str, str], list[dict]] = {}
     merged_order = []
     for key in group_order:
         root = find(key)
@@ -435,7 +437,7 @@ def _resolve(entries: list) -> dict:
     # quality issue in the sheet itself. The first (lowest-numbered) row among
     # them is the one matching will use, since row_records preserves row order
     # and matching below takes the first match found.
-    rows_by_exact_key = {}
+    rows_by_exact_key: dict[tuple[str, str], list[dict]] = {}
     for record in row_records:
         rows_by_exact_key.setdefault((record["company_norm"], record["role_norm"]), []).append(
             record
@@ -564,7 +566,7 @@ def _apply(sheets_service, updates: list, rows_to_append: list, last_data_row: i
     return {"rows_added": rows_added, "rows_updated": rows_updated}
 
 
-def preview_resolve(entries: list) -> dict:
+def preview_resolve(entries: list[dict]) -> dict:
     """Runs date resolution and duplicate merging on entries WITHOUT reading
     the sheet, computing a diff, or persisting anything. Returns the resolved,
     merged entries for display. This is the preview counterpart of
@@ -611,7 +613,7 @@ def preview_resolve(entries: list) -> dict:
     }
 
 
-def stage_write(entries: list) -> dict:
+def stage_write(entries: list[dict]) -> dict:
     """Validates and resolves job application entries against the Tracker
     sheet and stages the result for confirmation, without writing anything to
     the sheet yet.

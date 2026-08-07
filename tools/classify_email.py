@@ -84,7 +84,7 @@ Respond ONLY with the JSON object, no markdown fences or extra text."""
         }
 
     try:
-        result = json.loads(response.text.strip())
+        result = json.loads(response.text.strip())  # type: ignore[union-attr]
     except (json.JSONDecodeError, AttributeError):
         print("[classify_email] ERROR could not parse response")
         result = {
