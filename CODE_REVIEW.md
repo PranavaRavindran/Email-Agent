@@ -166,3 +166,135 @@ pass are a prerequisite for any of the `TypedDict` work above — Gemini's
 schema for a bare `list` has no `items` field at all, so today's ADK-generated
 JSON gives the model no signal that entries are even objects, let alone what
 fields they should carry.
+
+## Section 4 — Complexity report
+
+`radon cc -s -a tools/ agents/ auth.py main.py agent.py`:
+
+```
+tools/find_application_date.py
+    F 439:0 _select_confirmation - C (19)
+    F 197:0 _role_matches - B (7)
+    F 234:0 _outcome_role_matches - B (7)
+    F 278:0 _no_identifying_info - B (7)
+    F 631:0 find_application_date - B (7)
+    F 70:0 _sought_identifier - A (5)
+    F 100:0 _significant_words - A (5)
+    F 108:0 _role_word_match - A (5)
+    F 315:0 _classify_intent - A (4)
+    F 590:0 _fetch_candidates - A (4)
+    F 59:0 _extract_req_number - A (3)
+    F 64:0 _extract_identifiers - A (3)
+    F 83:0 _identifier_verdict - A (3)
+    F 131:0 _same_role - A (3)
+    F 146:0 _role_hint - A (3)
+    F 169:0 _extract_role - A (3)
+    F 421:0 is_confirmation_email - A (3)
+    F 715:0 _parse_header_date - A (3)
+    F 50:0 _company_token - A (2)
+    F 183:0 _normalize_for_match - A (2)
+    F 187:0 _contains_role - A (2)
+    F 433:0 _looks_like_confirmation - A (2)
+    F 55:0 _parse_date - A (1)
+tools/classify_email.py
+    F 8:0 classify_email - A (4)
+tools/get_emails_bulk.py
+    F 8:0 get_emails_bulk - B (10)
+tools/search_emails.py
+    F 4:0 search_emails - A (4)
+tools/draft_reply.py
+    F 6:0 draft_reply - A (2)
+tools/write_to_sheet.py
+    F 62:0 _validate_entry - D (23)
+    F 374:0 _resolve - C (20)
+    F 616:0 stage_write - C (13)
+    F 287:0 _merge_duplicates - C (12)
+    F 226:0 _resolve_dates - B (6)
+    F 168:0 _company_matches - A (5)
+    F 569:0 preview_resolve - A (5)
+    F 191:0 _fetch_source_emails - A (4)
+    F 44:0 _normalize - A (3)
+    F 542:0 _apply - A (3)
+    F 765:0 commit_write - A (3)
+    F 134:0 _log_run - A (2)
+    F 180:0 _keys_match - A (2)
+    F 184:0 _sort_key - A (2)
+    F 206:0 _has_observed_confirmation - A (2)
+    F 216:0 _group_source_text - A (2)
+tools/get_email_detail.py
+    F 42:0 _fetch_one - B (7)
+    F 96:0 _find_part_data - A (5)
+    F 126:0 _extract_body - A (3)
+    F 116:0 _html_to_text - A (2)
+    F 18:0 get_fetched_ids - A (1)
+    F 23:0 reset_fetched_ids - A (1)
+    F 29:0 get_email_detail - A (1)
+    F 112:0 _decode - A (1)
+tools/list_emails.py
+    F 4:0 list_emails - A (4)
+tools/search_email_ids.py
+    F 25:0 search_email_ids - A (5)
+    F 14:0 get_last_search_count - A (1)
+    F 19:0 get_last_search_range - A (1)
+auth.py
+    F 62:0 _build_service - B (7)
+    F 28:0 get_gmail_service - A (3)
+    F 37:0 get_thread_local_gmail_service - A (2)
+    F 55:0 initialize_gmail_service - A (1)
+main.py
+    F 16:0 run_agent - C (11)
+    F 60:0 main - A (2)
+
+61 blocks (classes, functions, methods) analyzed.
+Average complexity: A (4.721311475409836)
+```
+
+`radon mi tools/ agents/` — every module scores grade **A**:
+
+```
+tools/find_application_date.py - A
+tools/classify_email.py - A
+tools/get_emails_bulk.py - A
+tools/__init__.py - A
+tools/search_emails.py - A
+tools/draft_reply.py - A
+tools/write_to_sheet.py - A
+tools/get_email_detail.py - A
+tools/list_emails.py - A
+tools/search_email_ids.py - A
+agents/classification_agent.py - A
+agents/tracker_agent.py - A
+agents/__init__.py - A
+agents/inbox_agent.py - A
+agents/drafting_agent.py - A
+```
+
+Two functions stand out from the rest of the distribution (average cyclomatic
+complexity across all 61 analyzed blocks is 4.7, solidly grade A):
+
+- **`_validate_entry` — D (23).** This is a flat validator: a long sequence
+  of independent `if` checks, each rejecting the entry for one specific
+  reason (missing field, bad date format, unknown status value, etc.) and
+  returning immediately. The high count is a direct reflection of how many
+  distinct rejection reasons `stage_write`'s contract requires distinguishing
+  between, not of tangled control flow — there's no nesting depth or
+  interacting state to simplify. **Deliberately not refactored.** Splitting
+  it into smaller functions would trade one long, linearly-readable
+  validator for several short ones plus the indirection of following calls
+  between them, for a construct that has no shared state between checks to
+  hide bugs in.
+
+- **`_select_confirmation` — C (19).** Unlike `_validate_entry`, this one is
+  **genuinely complex**: real nesting (loop over candidates, nested
+  conditionals per candidate), loop-carried state (`weak_match`, updated
+  conditionally across iterations and read after the loop via
+  `_end_of_scan`), and a network call (`get_email_detail`) made mid-branch
+  only when a candidate's body isn't already available. This is the one
+  candidate in the codebase flagged here for future restructuring — for
+  example, separating "fetch the candidate's body if needed" from "decide
+  whether this candidate resolves the search" would remove the interleaving
+  of I/O and control flow that makes this function harder to reason about
+  than its complexity number alone suggests. **Not refactored in this
+  pass** — this report is observational only.
+
+No refactoring was performed as part of this section.
