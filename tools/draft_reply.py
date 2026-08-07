@@ -39,4 +39,8 @@ any explanation. The user will review this draft before deciding to send it."""
         contents=prompt,
     )
 
-    return {"draft": response.text.strip()}  # type: ignore[union-attr]
+    text = response.text
+    if not text:
+        print("[draft_reply] ERROR model returned no text")
+        return {"error": "The model returned no draft text. Try again."}
+    return {"draft": text.strip()}
