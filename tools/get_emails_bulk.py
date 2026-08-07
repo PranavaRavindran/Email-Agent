@@ -25,6 +25,7 @@ def get_emails_bulk(email_ids: list[str]) -> dict:
         {"error": "<message>"} if that particular id failed to fetch. A
         failed id does not abort the rest of the batch.
     """
+    email_ids = list(dict.fromkeys(email_ids))
     results = {}
     cached_ids = [email_id for email_id in email_ids if email_id in _BODY_CACHE]
     uncached_ids = [email_id for email_id in email_ids if email_id not in _BODY_CACHE]

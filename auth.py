@@ -21,13 +21,16 @@ _CREDENTIALS_FILE = os.path.join(_BASE_DIR, "credentials.json")
 _TOKEN_FILE = os.path.join(_BASE_DIR, "token.pickle")
 
 _service: GmailService | None = None
+_service_lock = threading.Lock()
 _thread_local = threading.local()
 
 
 def get_gmail_service() -> GmailService:
     global _service
     if _service is None:
-        _service = _build_service()
+        with _service_lock:
+            if _service is None:
+                _service = _build_service()
     return _service
 
 
