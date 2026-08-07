@@ -33,7 +33,16 @@ _REQ_NUMBER_RE = re.compile(
 _IDENTIFIER_RE = re.compile(r"\b[A-Za-z]{0,4}\d{5,}\b")
 
 _FILLER_WORDS = {
-    "the", "for", "your", "position", "role", "job", "application", "recent", "new", "and",
+    "the",
+    "for",
+    "your",
+    "position",
+    "role",
+    "job",
+    "application",
+    "recent",
+    "new",
+    "and",
 }
 
 
@@ -503,7 +512,9 @@ def _select_confirmation(
 
     def _end_of_scan():
         if weak_match is not None:
-            print(f"[find_application_date] using weak match {weak_match['email_id']} (no role identified)")
+            print(
+                f"[find_application_date] using weak match {weak_match['email_id']} (no role identified)"
+            )
             return weak_match
         print(f"[find_application_date] no match within {max_candidates} candidates")
         return {"found": False, "date": "", "email_id": ""}
@@ -531,10 +542,14 @@ def _select_confirmation(
 
         if intent["communicates_outcome"]:
             if _no_identifying_info(subject, body, role, source_text):
-                print(f"{prefix} -> outcome, no identifying information, assuming same application, stopping search")
+                print(
+                    f"{prefix} -> outcome, no identifying information, assuming same application, stopping search"
+                )
                 return _end_of_scan()
             if _outcome_role_matches(subject, body, role, source_text):
-                print(f"{prefix} -> skipped: communicates an outcome (rejection/interview/offer), stopping search")
+                print(
+                    f"{prefix} -> skipped: communicates an outcome (rejection/interview/offer), stopping search"
+                )
                 return _end_of_scan()
             print(f"{prefix} -> skipped: outcome for a different role")
             continue
@@ -554,7 +569,9 @@ def _select_confirmation(
             if sought_ids and candidate_ids and not (sought_ids & candidate_ids):
                 candidate_req = ", ".join(sorted(candidate_ids))
                 sought_req = ", ".join(sorted(sought_ids))
-                print(f"{prefix} -> skipped: requisition mismatch ({candidate_req} vs {sought_req})")
+                print(
+                    f"{prefix} -> skipped: requisition mismatch ({candidate_req} vs {sought_req})"
+                )
                 continue
             print(f"{prefix} -> weak match (no role identified in email)")
             if weak_match is None:
@@ -569,29 +586,41 @@ def _select_confirmation(
 def _fetch_candidates(service, query: str, max_results: int) -> list:
     """Runs a Gmail search and returns candidate dicts (id, date, subject)
     for each result with a parseable Date header."""
-    response = service.users().messages().list(
-        userId="me",
-        q=query,
-        maxResults=max_results,
-    ).execute()
+    response = (
+        service.users()
+        .messages()
+        .list(
+            userId="me",
+            q=query,
+            maxResults=max_results,
+        )
+        .execute()
+    )
 
     candidates = []
     for msg in response.get("messages", []):
-        meta = service.users().messages().get(
-            userId="me",
-            id=msg["id"],
-            format="metadata",
-            metadataHeaders=["Subject", "Date"],
-        ).execute()
+        meta = (
+            service.users()
+            .messages()
+            .get(
+                userId="me",
+                id=msg["id"],
+                format="metadata",
+                metadataHeaders=["Subject", "Date"],
+            )
+            .execute()
+        )
         headers = {h["name"]: h["value"] for h in meta["payload"]["headers"]}
         parsed = _parse_header_date(headers.get("Date", ""))
         if parsed is None:
             continue
-        candidates.append({
-            "id": msg["id"],
-            "date": parsed,
-            "subject": headers.get("Subject", ""),
-        })
+        candidates.append(
+            {
+                "id": msg["id"],
+                "date": parsed,
+                "subject": headers.get("Subject", ""),
+            }
+        )
     return candidates
 
 
@@ -670,7 +699,9 @@ def find_application_date(company: str, role: str, before_date: str, source_text
         query_parts.append(date_bounds)
         query = " ".join(query_parts)
         candidates = _fetch_candidates(service, query, _MAX_CANDIDATES_EXAMINED)
-        return _select_confirmation(candidates, role, before_dt, source_text, _MAX_CANDIDATES_EXAMINED)
+        return _select_confirmation(
+            candidates, role, before_dt, source_text, _MAX_CANDIDATES_EXAMINED
+        )
 
     except Exception as e:
         print(f"[find_application_date] ERROR {e}")

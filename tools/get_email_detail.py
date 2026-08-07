@@ -53,16 +53,23 @@ def _fetch_one(email_id: str, quiet: bool = False) -> dict:
 
     service = get_thread_local_gmail_service()
 
-    msg = service.users().messages().get(
-        userId="me",
-        id=email_id,
-        format="full",
-    ).execute()
+    msg = (
+        service.users()
+        .messages()
+        .get(
+            userId="me",
+            id=email_id,
+            format="full",
+        )
+        .execute()
+    )
 
     headers = {h["name"]: h["value"] for h in msg["payload"]["headers"]}
     body = _extract_body(msg["payload"])
     if not body:
-        print(f"[get_email_detail] WARNING empty body for id {email_id} subject {headers.get('Subject', '')}")
+        print(
+            f"[get_email_detail] WARNING empty body for id {email_id} subject {headers.get('Subject', '')}"
+        )
     if len(body) > _MAX_BODY_LENGTH:
         body = body[:_MAX_BODY_LENGTH] + "...[truncated]"
 

@@ -29,8 +29,8 @@ def classify_email(email: dict) -> dict:
 
     prompt = f"""Analyze the following email and classify it.
 
-From: {email.get('from', '')}
-Subject: {email.get('subject', '')}
+From: {email.get("from", "")}
+Subject: {email.get("subject", "")}
 Body: {body_text}
 
 Respond with a JSON object containing exactly these keys:

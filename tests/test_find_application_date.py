@@ -8,8 +8,12 @@ from find_application_date import (
     is_confirmation_email,
 )
 
-_CONFIRMATION_BODY = "Thank you for applying to the {role} position. We have received your application."
-_REJECTION_BODY = "We have decided not to move forward with your application for the {role} position."
+_CONFIRMATION_BODY = (
+    "Thank you for applying to the {role} position. We have received your application."
+)
+_REJECTION_BODY = (
+    "We have decided not to move forward with your application for the {role} position."
+)
 _OTHER_BODY = "Please verify your email address to complete your account setup."
 
 
@@ -43,6 +47,7 @@ def _fake_classify_intent(subject: str, body: str) -> dict:
 
 def _patch_classify_intent(monkeypatch):
     import find_application_date as fad
+
     monkeypatch.setattr(fad, "_classify_intent", _fake_classify_intent)
 
 
@@ -50,10 +55,13 @@ def _patch_classify_intent(monkeypatch):
 # _select_confirmation - the SAIC shape
 # ---------------------------------------------------------------------------
 
+
 class TestSelectConfirmationSaicShape:
     def _candidates(self):
         return [
-            _candidate("2026-04-14", "Software Engineer Associate", "confirmation", "id-old-confirm"),
+            _candidate(
+                "2026-04-14", "Software Engineer Associate", "confirmation", "id-old-confirm"
+            ),
             _candidate("2026-05-04", "Software Engineer Associate", "rejection", "id-old-reject"),
             _candidate("2026-05-13", "Software Engineer II", "confirmation", "id-new-confirm"),
         ]
@@ -65,7 +73,9 @@ class TestSelectConfirmationSaicShape:
 
     def test_finds_older_confirmation_when_searching_before_its_own_rejection(self, monkeypatch):
         _patch_classify_intent(monkeypatch)
-        result = _select_confirmation(self._candidates(), "Software Engineer Associate", "2026-05-04")
+        result = _select_confirmation(
+            self._candidates(), "Software Engineer Associate", "2026-05-04"
+        )
         assert result == {"found": True, "date": "2026-04-14", "email_id": "id-old-confirm"}
 
     def test_stops_scanning_at_first_match_not_examining_all_candidates(self, monkeypatch):
@@ -86,6 +96,7 @@ class TestSelectConfirmationSaicShape:
 # ---------------------------------------------------------------------------
 # _select_confirmation - intervening outcome stop
 # ---------------------------------------------------------------------------
+
 
 class TestSelectConfirmationInterveningOutcome:
     def test_matching_outcome_stops_search_before_reaching_older_confirmation(self, monkeypatch):
@@ -110,10 +121,22 @@ class TestSelectConfirmationInterveningOutcome:
 
         def classify(subject, body):
             if "rejection" in subject.lower():
-                return {"application_related": True, "communicates_outcome": True, "feedback_only": False}
+                return {
+                    "application_related": True,
+                    "communicates_outcome": True,
+                    "feedback_only": False,
+                }
             if "confirmation" in subject.lower():
-                return {"application_related": True, "communicates_outcome": False, "feedback_only": False}
-            return {"application_related": False, "communicates_outcome": False, "feedback_only": False}
+                return {
+                    "application_related": True,
+                    "communicates_outcome": False,
+                    "feedback_only": False,
+                }
+            return {
+                "application_related": False,
+                "communicates_outcome": False,
+                "feedback_only": False,
+            }
 
         monkeypatch.setattr(fad, "_classify_intent", classify)
         candidates = [
@@ -162,6 +185,7 @@ class TestSelectConfirmationInterveningOutcome:
 # _select_confirmation - cap on candidates examined
 # ---------------------------------------------------------------------------
 
+
 class TestSelectConfirmationCap:
     def test_stops_examining_after_ten_candidates(self, monkeypatch):
         _patch_classify_intent(monkeypatch)
@@ -171,7 +195,9 @@ class TestSelectConfirmationCap:
             _candidate(f"2026-01-{day:02d}", "Irrelevant Role", "other", f"id-noise-{day}")
             for day in range(1, 12)
         ]
-        candidates.append(_candidate("2025-12-01", "Backend Engineer", "confirmation", "id-too-old"))
+        candidates.append(
+            _candidate("2025-12-01", "Backend Engineer", "confirmation", "id-too-old")
+        )
         result = _select_confirmation(candidates, "Backend Engineer", "2026-05-31")
         assert result == {"found": False, "date": "", "email_id": ""}
 
@@ -185,6 +211,7 @@ class TestSelectConfirmationCap:
 # ---------------------------------------------------------------------------
 # _select_confirmation - lazy body fetch
 # ---------------------------------------------------------------------------
+
 
 class TestSelectConfirmationLazyFetch:
     def test_body_is_fetched_only_for_the_matching_candidate(self, monkeypatch):
@@ -205,9 +232,21 @@ class TestSelectConfirmationLazyFetch:
         _patch_classify_intent(monkeypatch)
 
         candidates = [
-            {"id": "id-old-confirm", "date": datetime(2026, 4, 14), "subject": "Software Engineer Associate - confirmation"},
-            {"id": "id-old-reject", "date": datetime(2026, 5, 4), "subject": "Software Engineer Associate - rejection"},
-            {"id": "id-new-confirm", "date": datetime(2026, 5, 13), "subject": "Software Engineer II - confirmation"},
+            {
+                "id": "id-old-confirm",
+                "date": datetime(2026, 4, 14),
+                "subject": "Software Engineer Associate - confirmation",
+            },
+            {
+                "id": "id-old-reject",
+                "date": datetime(2026, 5, 4),
+                "subject": "Software Engineer Associate - rejection",
+            },
+            {
+                "id": "id-new-confirm",
+                "date": datetime(2026, 5, 13),
+                "subject": "Software Engineer II - confirmation",
+            },
         ]
 
         result = fad._select_confirmation(candidates, "Software Engineer II", "2026-05-31")
@@ -221,18 +260,32 @@ class TestSelectConfirmationLazyFetch:
         monkeypatch.setattr(
             fad,
             "get_email_detail",
-            lambda email_id: fetched_ids.append(email_id) or {"email": {"body": "should never be read"}},
+            lambda email_id: (
+                fetched_ids.append(email_id) or {"email": {"body": "should never be read"}}
+            ),
         )
 
         def classify(subject, body):
             if subject == "Confirm your identity":
-                return {"application_related": False, "communicates_outcome": False, "feedback_only": False}
-            return {"application_related": True, "communicates_outcome": False, "feedback_only": False}
+                return {
+                    "application_related": False,
+                    "communicates_outcome": False,
+                    "feedback_only": False,
+                }
+            return {
+                "application_related": True,
+                "communicates_outcome": False,
+                "feedback_only": False,
+            }
 
         monkeypatch.setattr(fad, "_classify_intent", classify)
 
         candidates = [
-            {"id": "id-irrelevant", "date": datetime(2026, 5, 1), "subject": "Confirm your identity"},
+            {
+                "id": "id-irrelevant",
+                "date": datetime(2026, 5, 1),
+                "subject": "Confirm your identity",
+            },
         ]
         result = fad._select_confirmation(candidates, "Backend Engineer", "2026-05-31")
         assert result == {"found": False, "date": "", "email_id": ""}
@@ -242,6 +295,7 @@ class TestSelectConfirmationLazyFetch:
 # ---------------------------------------------------------------------------
 # _looks_like_confirmation / _same_role
 # ---------------------------------------------------------------------------
+
 
 class TestClassificationHelpers:
     def test_same_role_prefers_requisition_number_when_both_present(self):
@@ -274,9 +328,16 @@ class TestLooksLikeConfirmation:
         monkeypatch.setattr(
             fad,
             "_classify_intent",
-            lambda s, b: {"application_related": True, "communicates_outcome": False, "feedback_only": False},
+            lambda s, b: {
+                "application_related": True,
+                "communicates_outcome": False,
+                "feedback_only": False,
+            },
         )
-        assert fad._looks_like_confirmation(subject, body, "Entry-Level Java Developer - 2612488") is True
+        assert (
+            fad._looks_like_confirmation(subject, body, "Entry-Level Java Developer - 2612488")
+            is True
+        )
 
     def test_status_update_with_rejection_body_is_not_a_confirmation(self, monkeypatch):
         import find_application_date as fad
@@ -290,7 +351,11 @@ class TestLooksLikeConfirmation:
         monkeypatch.setattr(
             fad,
             "_classify_intent",
-            lambda s, b: {"application_related": True, "communicates_outcome": True, "feedback_only": False},
+            lambda s, b: {
+                "application_related": True,
+                "communicates_outcome": True,
+                "feedback_only": False,
+            },
         )
         assert fad._looks_like_confirmation(subject, body, "Software Engineer Associate") is False
 
@@ -301,10 +366,16 @@ class TestLooksLikeConfirmation:
 
         def classify(subject, body):
             calls.append((subject, body))
-            return {"application_related": False, "communicates_outcome": False, "feedback_only": False}
+            return {
+                "application_related": False,
+                "communicates_outcome": False,
+                "feedback_only": False,
+            }
 
         monkeypatch.setattr(fad, "_classify_intent", classify)
-        assert fad._looks_like_confirmation("Confirm your identity", "", "Backend Engineer") is False
+        assert (
+            fad._looks_like_confirmation("Confirm your identity", "", "Backend Engineer") is False
+        )
         assert calls == [("Confirm your identity", "")]
 
     def test_interview_invitation_is_not_a_confirmation(self, monkeypatch):
@@ -315,7 +386,11 @@ class TestLooksLikeConfirmation:
         monkeypatch.setattr(
             fad,
             "_classify_intent",
-            lambda s, b: {"application_related": True, "communicates_outcome": True, "feedback_only": False},
+            lambda s, b: {
+                "application_related": True,
+                "communicates_outcome": True,
+                "feedback_only": False,
+            },
         )
         assert fad._looks_like_confirmation(subject, body, "Backend Engineer") is False
 
@@ -323,6 +398,7 @@ class TestLooksLikeConfirmation:
 # ---------------------------------------------------------------------------
 # find_application_date - end to end with a mocked Gmail service
 # ---------------------------------------------------------------------------
+
 
 def _metadata_response(subject: str, date: str) -> dict:
     return {
@@ -413,9 +489,17 @@ def test_find_application_date_end_to_end_returns_newest_matching_confirmation(m
     def classify(subject, body):
         lower = subject.lower()
         if "received" in lower:
-            return {"application_related": True, "communicates_outcome": False, "feedback_only": False}
+            return {
+                "application_related": True,
+                "communicates_outcome": False,
+                "feedback_only": False,
+            }
         if "update on your" in lower:
-            return {"application_related": True, "communicates_outcome": True, "feedback_only": False}
+            return {
+                "application_related": True,
+                "communicates_outcome": True,
+                "feedback_only": False,
+            }
         return {"application_related": False, "communicates_outcome": False, "feedback_only": False}
 
     monkeypatch.setattr(fad, "get_gmail_service", lambda: _FakeService(saic_emails))
@@ -434,6 +518,7 @@ def test_find_application_date_end_to_end_returns_newest_matching_confirmation(m
 # ---------------------------------------------------------------------------
 # _role_matches - role appears verbatim in the candidate subject (Fix 2)
 # ---------------------------------------------------------------------------
+
 
 class TestRoleMatches:
     def test_role_verbatim_in_candidate_subject_matches(self):
@@ -454,6 +539,7 @@ class TestRoleMatches:
 # ---------------------------------------------------------------------------
 # _select_confirmation - weak matches when no role is named anywhere (Fix 3)
 # ---------------------------------------------------------------------------
+
 
 def _confirmation_classify(subject: str, body: str) -> dict:
     """Stand-in classifier: every candidate here looks like a genuine,
@@ -477,6 +563,7 @@ def _confirmation_classify_with_rejection(subject: str, body: str) -> dict:
 class TestWeakMatch:
     def test_confirmation_naming_no_role_is_a_weak_match_not_a_rejection(self, monkeypatch):
         import find_application_date as fad
+
         monkeypatch.setattr(fad, "_classify_intent", _confirmation_classify)
 
         candidates = [
@@ -492,6 +579,7 @@ class TestWeakMatch:
 
     def test_strong_match_preferred_over_an_earlier_weak_match(self, monkeypatch):
         import find_application_date as fad
+
         monkeypatch.setattr(fad, "_classify_intent", _confirmation_classify)
 
         candidates = [
@@ -532,6 +620,7 @@ class TestWeakMatch:
 
     def test_weak_match_rejected_when_body_requisition_differs_from_known(self, monkeypatch):
         import find_application_date as fad
+
         monkeypatch.setattr(fad, "_classify_intent", _confirmation_classify)
 
         candidates = [
@@ -552,6 +641,7 @@ class TestWeakMatch:
 
     def test_weak_match_accepted_when_no_known_requisition_number(self, monkeypatch):
         import find_application_date as fad
+
         monkeypatch.setattr(fad, "_classify_intent", _confirmation_classify)
 
         candidates = [
@@ -571,6 +661,7 @@ class TestWeakMatch:
 # footer merely invites feedback (Fix 1)
 # ---------------------------------------------------------------------------
 
+
 class TestFeedbackOnlyIsNotConfirmation:
     """A literal-phrase feedback/survey regex applied to the full body was
     matching nearly every recruiting confirmation footer ("share your
@@ -585,7 +676,11 @@ class TestFeedbackOnlyIsNotConfirmation:
         def classify(subject, body):
             # The email's entire purpose is the survey ask - nothing about
             # the application is acknowledged.
-            return {"application_related": True, "communicates_outcome": False, "feedback_only": True}
+            return {
+                "application_related": True,
+                "communicates_outcome": False,
+                "feedback_only": True,
+            }
 
         monkeypatch.setattr(fad, "_classify_intent", classify)
 
@@ -597,13 +692,19 @@ class TestFeedbackOnlyIsNotConfirmation:
 
         assert fad.is_confirmation_email(subject, body) is False
 
-    def test_confirmation_whose_footer_merely_invites_feedback_is_still_a_confirmation(self, monkeypatch):
+    def test_confirmation_whose_footer_merely_invites_feedback_is_still_a_confirmation(
+        self, monkeypatch
+    ):
         import find_application_date as fad
 
         def classify(subject, body):
             # Real case from the live run: a genuine confirmation whose
             # footer happens to invite feedback must not be excluded.
-            return {"application_related": True, "communicates_outcome": False, "feedback_only": False}
+            return {
+                "application_related": True,
+                "communicates_outcome": False,
+                "feedback_only": False,
+            }
 
         monkeypatch.setattr(fad, "_classify_intent", classify)
 
@@ -616,6 +717,7 @@ class TestFeedbackOnlyIsNotConfirmation:
 # ---------------------------------------------------------------------------
 # _role_matches - a requisition mismatch is a hard NO (Fix 1)
 # ---------------------------------------------------------------------------
+
 
 class TestIdentifierHardNo:
     """Live evidence: IBM / Software Developer and IBM / Software Developer
@@ -664,6 +766,7 @@ class TestIdentifierHardNo:
         # be rejected outright when its identifier conflicts with the
         # sought one, rather than falling through to a weak/word match.
         import find_application_date as fad
+
         monkeypatch.setattr(fad, "_classify_intent", _confirmation_classify)
 
         candidates = [
@@ -687,6 +790,7 @@ class TestIdentifierHardNo:
 # _role_word_match - tightened word overlap (Fix 2)
 # ---------------------------------------------------------------------------
 
+
 class TestTightenedWordOverlap:
     """Live evidence: "Software Developer" matched "Associate Application
     Developer AWS 2026 - FutureNow - Chicago" because half the sought
@@ -699,10 +803,13 @@ class TestTightenedWordOverlap:
     def test_half_word_overlap_no_longer_matches(self):
         import find_application_date as fad
 
-        assert fad._role_word_match(
-            "Associate Application Developer AWS 2026 - FutureNow - Chicago",
-            "Software Developer",
-        ) is False
+        assert (
+            fad._role_word_match(
+                "Associate Application Developer AWS 2026 - FutureNow - Chicago",
+                "Software Developer",
+            )
+            is False
+        )
 
     def test_role_matches_rejects_the_same_case_end_to_end(self):
         import find_application_date as fad
@@ -718,6 +825,7 @@ class TestTightenedWordOverlap:
 # (Fix 3)
 # ---------------------------------------------------------------------------
 
+
 class TestStopEarlyOnUnidentifiableOutcome:
     """Live evidence: Twitch. "Thank you for applying to Twitch"
     (2026-05-26, a role-less weak match) was returned even though
@@ -730,6 +838,7 @@ class TestStopEarlyOnUnidentifiableOutcome:
 
     def test_roleless_outcome_at_same_company_stops_the_scan(self, monkeypatch):
         import find_application_date as fad
+
         monkeypatch.setattr(fad, "_classify_intent", _confirmation_classify_with_rejection)
 
         candidates = [
@@ -763,6 +872,7 @@ class TestStopEarlyOnUnidentifiableOutcome:
         # rather than continue to the older, would-otherwise-match
         # confirmation behind it.
         import find_application_date as fad
+
         monkeypatch.setattr(fad, "_classify_intent", _confirmation_classify_with_rejection)
 
         candidates = [
@@ -779,6 +889,7 @@ class TestStopEarlyOnUnidentifiableOutcome:
 
     def test_prints_no_identifying_information_message(self, monkeypatch, capsys):
         import find_application_date as fad
+
         monkeypatch.setattr(fad, "_classify_intent", _confirmation_classify_with_rejection)
 
         candidates = [
@@ -791,7 +902,9 @@ class TestStopEarlyOnUnidentifiableOutcome:
         ]
         fad._select_confirmation(candidates, "Software Engineer I", "2026-05-31")
         captured = capsys.readouterr()
-        assert "no identifying information, assuming same application, stopping search" in captured.out
+        assert (
+            "no identifying information, assuming same application, stopping search" in captured.out
+        )
 
     def test_outcome_with_a_shared_identifier_is_not_treated_as_no_identifying_info(self):
         # An outcome that DOES carry a matching requisition number must go
@@ -800,25 +913,32 @@ class TestStopEarlyOnUnidentifiableOutcome:
         # False as soon as either side has an identifier.
         import find_application_date as fad
 
-        assert fad._no_identifying_info(
-            subject="Update on requisition 108479",
-            body="Requisition Number: 108479.",
-            role="Software Developer (108479)",
-        ) is False
+        assert (
+            fad._no_identifying_info(
+                subject="Update on requisition 108479",
+                body="Requisition Number: 108479.",
+                role="Software Developer (108479)",
+            )
+            is False
+        )
 
     def test_no_identifying_info_true_when_neither_side_names_anything(self):
         import find_application_date as fad
 
-        assert fad._no_identifying_info(
-            subject="Important information about your application to Twitch",
-            body="Thank you for your interest. We have decided not to move forward at this time.",
-            role="Software Engineer I",
-        ) is True
+        assert (
+            fad._no_identifying_info(
+                subject="Important information about your application to Twitch",
+                body="Thank you for your interest. We have decided not to move forward at this time.",
+                role="Software Engineer I",
+            )
+            is True
+        )
 
 
 # ---------------------------------------------------------------------------
 # _sought_identifier / find_application_date - query by requisition first
 # ---------------------------------------------------------------------------
+
 
 class TestQueryByIdentifierFirst:
     """Live evidence: IBM / Software Developer - Austin, TX (req 108479) had
@@ -832,16 +952,15 @@ class TestQueryByIdentifierFirst:
     def test_sought_identifier_extracted_from_role(self):
         import find_application_date as fad
 
-        assert fad._sought_identifier(
-            "Software Developer - Austin, TX (108479)", ""
-        ) == "108479"
+        assert fad._sought_identifier("Software Developer - Austin, TX (108479)", "") == "108479"
 
     def test_sought_identifier_falls_back_to_source_text(self):
         import find_application_date as fad
 
-        assert fad._sought_identifier(
-            "Software Developer - Austin, TX", "Requisition Number: 108479."
-        ) == "108479"
+        assert (
+            fad._sought_identifier("Software Developer - Austin, TX", "Requisition Number: 108479.")
+            == "108479"
+        )
 
     def test_sought_identifier_empty_when_neither_side_has_one(self):
         import find_application_date as fad
@@ -864,13 +983,19 @@ class TestQueryByIdentifierFirst:
         }
 
         def classify(subject, body):
-            return {"application_related": True, "communicates_outcome": False, "feedback_only": False}
+            return {
+                "application_related": True,
+                "communicates_outcome": False,
+                "feedback_only": False,
+            }
 
         queries = []
         monkeypatch.setattr(fad, "get_gmail_service", lambda: _FakeService(ibm_emails, queries))
         monkeypatch.setattr(fad, "get_last_search_range", lambda: ("", ""))
         monkeypatch.setattr(fad, "_classify_intent", classify)
-        monkeypatch.setattr(fad, "get_email_detail", lambda email_id: {"email": ibm_emails[email_id]})
+        monkeypatch.setattr(
+            fad, "get_email_detail", lambda email_id: {"email": ibm_emails[email_id]}
+        )
 
         result = fad.find_application_date(
             "IBM", "Software Developer - Austin, TX (108479)", "2026-07-12"
@@ -880,7 +1005,9 @@ class TestQueryByIdentifierFirst:
         assert "108479" in queries[0]
         assert "ibm" not in queries[0].lower()
 
-    def test_find_application_date_falls_back_to_company_query_without_identifier(self, monkeypatch):
+    def test_find_application_date_falls_back_to_company_query_without_identifier(
+        self, monkeypatch
+    ):
         import find_application_date as fad
 
         emails = {
@@ -893,7 +1020,11 @@ class TestQueryByIdentifierFirst:
         }
 
         def classify(subject, body):
-            return {"application_related": True, "communicates_outcome": False, "feedback_only": False}
+            return {
+                "application_related": True,
+                "communicates_outcome": False,
+                "feedback_only": False,
+            }
 
         queries = []
         monkeypatch.setattr(fad, "get_gmail_service", lambda: _FakeService(emails, queries))
@@ -906,7 +1037,9 @@ class TestQueryByIdentifierFirst:
         assert len(queries) == 1
         assert "acme" in queries[0].lower()
 
-    def test_find_application_date_falls_back_to_company_when_identifier_query_finds_nothing(self, monkeypatch):
+    def test_find_application_date_falls_back_to_company_when_identifier_query_finds_nothing(
+        self, monkeypatch
+    ):
         # The identifier query runs first but yields no confirmation (the
         # only candidate is unrelated), so a second, company-token query
         # must still run and find the real confirmation.
@@ -929,8 +1062,16 @@ class TestQueryByIdentifierFirst:
 
         def classify(subject, body):
             if subject == "Password reset requested":
-                return {"application_related": False, "communicates_outcome": False, "feedback_only": False}
-            return {"application_related": True, "communicates_outcome": False, "feedback_only": False}
+                return {
+                    "application_related": False,
+                    "communicates_outcome": False,
+                    "feedback_only": False,
+                }
+            return {
+                "application_related": True,
+                "communicates_outcome": False,
+                "feedback_only": False,
+            }
 
         class _TwoQueryFakeMessages(_FakeMessages):
             def list(self, **kwargs):
@@ -965,6 +1106,7 @@ class TestQueryByIdentifierFirst:
 # _select_confirmation - candidate cap differs by query type (Fix 3)
 # ---------------------------------------------------------------------------
 
+
 class TestCandidateCapByQueryType:
     def test_constants(self):
         import find_application_date as fad
@@ -984,6 +1126,7 @@ class TestCandidateCapByQueryType:
 
     def test_raised_cap_of_25_finds_the_same_candidate(self, monkeypatch):
         import find_application_date as fad
+
         _patch_classify_intent(monkeypatch)
         candidates = [
             _candidate(f"2026-01-{day:02d}", "Irrelevant Role", "other", f"id-noise-{day}")
@@ -1002,6 +1145,7 @@ class TestCandidateCapByQueryType:
 # ---------------------------------------------------------------------------
 # _MIN_LOOKBACK_DAYS / _MAX_LOOKBACK_DAYS (Fix 2)
 # ---------------------------------------------------------------------------
+
 
 class TestLookbackWindow:
     """Live evidence: the Austin IBM application ran 2026-04-08 to
@@ -1027,6 +1171,7 @@ class TestLookbackWindow:
 # directly rather than monkeypatching _classify_intent away like every other
 # test in this file.
 # ---------------------------------------------------------------------------
+
 
 class _FakeResponse:
     def __init__(self, text):
@@ -1065,7 +1210,9 @@ class TestClassifyIntentRetry:
         import find_application_date as fad
 
         error = Exception("503 UNAVAILABLE")
-        success_json = '{"application_related": true, "communicates_outcome": false, "feedback_only": false}'
+        success_json = (
+            '{"application_related": true, "communicates_outcome": false, "feedback_only": false}'
+        )
         fake_client = self._patch_client(monkeypatch, [error, error, success_json])
 
         result = fad._classify_intent("Your application", "We received it")
@@ -1102,7 +1249,9 @@ class TestClassifyIntentRetry:
     def test_does_not_retry_on_first_success(self, monkeypatch):
         import find_application_date as fad
 
-        success_json = '{"application_related": true, "communicates_outcome": true, "feedback_only": false}'
+        success_json = (
+            '{"application_related": true, "communicates_outcome": true, "feedback_only": false}'
+        )
         fake_client = self._patch_client(monkeypatch, [success_json])
 
         result = fad._classify_intent("Update", "Not moving forward")

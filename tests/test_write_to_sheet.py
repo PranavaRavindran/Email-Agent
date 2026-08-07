@@ -16,6 +16,7 @@ from write_to_sheet import (
 # _normalize
 # ---------------------------------------------------------------------------
 
+
 class TestNormalize:
     def test_lowercases(self):
         assert _normalize("ACME Corp") == _normalize("acme corp")
@@ -52,6 +53,7 @@ class TestNormalize:
 # _company_matches
 # ---------------------------------------------------------------------------
 
+
 class TestCompanyMatches:
     def test_exact_keys_match(self):
         assert _company_matches("acme", "acme") is True
@@ -73,6 +75,7 @@ class TestCompanyMatches:
 # _keys_match
 # ---------------------------------------------------------------------------
 
+
 class TestKeysMatch:
     def test_matching_company_and_role(self):
         assert _keys_match("ibm", "software developer", "ibm", "software developer") is True
@@ -82,12 +85,15 @@ class TestKeysMatch:
         # collapsed "software developer" with "software developer 2026 elh"
         # at the same company, silently dropping one of two distinct
         # applications from the sheet.
-        assert _keys_match("ibm", "software developer", "ibm", "software developer 2026 elh") is False
+        assert (
+            _keys_match("ibm", "software developer", "ibm", "software developer 2026 elh") is False
+        )
 
 
 # ---------------------------------------------------------------------------
 # _validate_entry
 # ---------------------------------------------------------------------------
+
 
 def _entry(**overrides):
     base = {
@@ -187,6 +193,7 @@ class TestValidateEntry:
 # _merge_duplicates
 # ---------------------------------------------------------------------------
 
+
 class TestMergeDuplicates:
     def test_regression_abbott_earliest_date_latest_status(self):
         # Regression: the Abbott application had an "Applied" entry dated
@@ -194,7 +201,9 @@ class TestMergeDuplicates:
         # entry sorted last and could drop the later rejection status,
         # reverting a rejected application back to Applied.
         applied = _entry(company="Abbott", role="Data Analyst", date="2026-06-04", status="Applied")
-        rejected = _entry(company="Abbott", role="Data Analyst", date="2026-07-13", status="Rejected")
+        rejected = _entry(
+            company="Abbott", role="Data Analyst", date="2026-07-13", status="Rejected"
+        )
 
         deduped, duplicates = _merge_duplicates([applied, rejected])
 
@@ -207,8 +216,15 @@ class TestMergeDuplicates:
         # "Acme Corp" and "Software Engineer (Remote)" normalize to the same
         # keys as "Acme" and "Software Engineer" (legal-suffix and
         # parenthetical stripping), so these two entries are one group.
-        short = _entry(company="Acme", role="Software Engineer", date="2026-06-01", status="Applied")
-        long = _entry(company="Acme Corp", role="Software Engineer (Remote)", date="2026-06-02", status="Applied")
+        short = _entry(
+            company="Acme", role="Software Engineer", date="2026-06-01", status="Applied"
+        )
+        long = _entry(
+            company="Acme Corp",
+            role="Software Engineer (Remote)",
+            date="2026-06-02",
+            status="Applied",
+        )
 
         deduped, _ = _merge_duplicates([short, long])
 
@@ -264,7 +280,9 @@ class TestMergeDuplicates:
         # an exact normalized key only, so these sailed through as two
         # separate new rows instead of merging like sheet matching
         # (_keys_match) would have caught.
-        short = _entry(company="CrossLink", role="Software Engineer I", date="2026-06-01", status="Applied")
+        short = _entry(
+            company="CrossLink", role="Software Engineer I", date="2026-06-01", status="Applied"
+        )
         long = _entry(
             company="CrossLink Professional Tax Solutions",
             role="Software Engineer I",
@@ -302,6 +320,7 @@ class TestMergeDuplicates:
 # _sort_key
 # ---------------------------------------------------------------------------
 
+
 class TestSortKey:
     def test_entries_sort_oldest_first(self):
         entries = [
@@ -330,11 +349,14 @@ class TestSortKey:
 # _resolve_dates
 # ---------------------------------------------------------------------------
 
+
 class TestResolveDates:
     @patch("write_to_sheet.is_confirmation_email")
     @patch("write_to_sheet.get_email_detail")
     @patch("write_to_sheet.find_application_date")
-    def test_observed_confirmation_skips_lookback(self, mock_find, mock_get_detail, mock_is_confirmation):
+    def test_observed_confirmation_skips_lookback(
+        self, mock_find, mock_get_detail, mock_is_confirmation
+    ):
         mock_get_detail.return_value = {"email": {"subject": "s", "body": "b"}}
         mock_is_confirmation.return_value = True
         entry = _entry(source_email_ids=["id-1"])
@@ -347,7 +369,9 @@ class TestResolveDates:
     @patch("write_to_sheet.is_confirmation_email")
     @patch("write_to_sheet.get_email_detail")
     @patch("write_to_sheet.find_application_date")
-    def test_no_observed_confirmation_runs_lookback(self, mock_find, mock_get_detail, mock_is_confirmation):
+    def test_no_observed_confirmation_runs_lookback(
+        self, mock_find, mock_get_detail, mock_is_confirmation
+    ):
         mock_get_detail.return_value = {"email": {"subject": "s", "body": "b"}}
         mock_is_confirmation.return_value = False
         mock_find.return_value = {"found": True, "date": "2026-05-01", "email_id": "abc"}
@@ -455,6 +479,7 @@ class TestResolveDates:
 # preview_resolve - fetch-completeness guard
 # ---------------------------------------------------------------------------
 
+
 class TestPreviewResolveFetchCompleteness:
     @patch("write_to_sheet.get_fetched_ids")
     @patch("write_to_sheet.get_last_search_count")
@@ -472,7 +497,9 @@ class TestPreviewResolveFetchCompleteness:
     @patch("write_to_sheet._resolve_dates")
     @patch("write_to_sheet.get_fetched_ids")
     @patch("write_to_sheet.get_last_search_count")
-    def test_does_not_resolve_or_merge_on_refusal(self, mock_searched, mock_fetched, mock_resolve_dates):
+    def test_does_not_resolve_or_merge_on_refusal(
+        self, mock_searched, mock_fetched, mock_resolve_dates
+    ):
         mock_searched.return_value = 10
         mock_fetched.return_value = {"id-1", "id-2"}
 
@@ -483,7 +510,9 @@ class TestPreviewResolveFetchCompleteness:
     @patch("write_to_sheet.find_application_date")
     @patch("write_to_sheet.get_fetched_ids")
     @patch("write_to_sheet.get_last_search_count")
-    def test_proceeds_when_fetched_count_meets_searched_count(self, mock_searched, mock_fetched, mock_find):
+    def test_proceeds_when_fetched_count_meets_searched_count(
+        self, mock_searched, mock_fetched, mock_find
+    ):
         mock_searched.return_value = 1
         mock_fetched.return_value = {"id-1"}
         mock_find.return_value = {"found": False, "date": "", "email_id": ""}

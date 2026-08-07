@@ -1,0 +1,11 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["venv", "__pycache__", "eval_agent", ".pytest_cache"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4"]
+
+[tool.ruff.lint.per-file-ignores]
+"agents/*" = ["E501"]
+"tests/*" = ["E501"]

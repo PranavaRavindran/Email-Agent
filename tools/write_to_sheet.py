@@ -207,8 +207,7 @@ def _has_observed_confirmation(emails: list) -> bool:
     reported flag: classifies each already-fetched email with
     is_confirmation_email. The group has a confirmation if any email does."""
     return any(
-        is_confirmation_email(email.get("subject", ""), email.get("body", ""))
-        for email in emails
+        is_confirmation_email(email.get("subject", ""), email.get("body", "")) for email in emails
     )
 
 
@@ -321,7 +320,7 @@ def _merge_duplicates(valid_entries: list) -> tuple:
             parent[root_b] = root_a
 
     for i, key_a in enumerate(group_order):
-        for key_b in group_order[i + 1:]:
+        for key_b in group_order[i + 1 :]:
             if key_a[1] == key_b[1] and _company_matches(key_a[0], key_b[0]):
                 union(key_a, key_b)
 
@@ -354,12 +353,14 @@ def _merge_duplicates(valid_entries: list) -> tuple:
         merged["role"] = longest_role
         deduped_entries.append(merged)
 
-        duplicates_in_batch.append({
-            "company": longest_company,
-            "role": longest_role,
-            "date": earliest_date,
-            "status": latest_status,
-        })
+        duplicates_in_batch.append(
+            {
+                "company": longest_company,
+                "role": longest_role,
+                "date": earliest_date,
+                "status": latest_status,
+            }
+        )
         print(
             f"[stage_write] merged duplicate: {longest_company} / {longest_role} -> "
             f"date {earliest_date}, status {latest_status}"
@@ -387,10 +388,16 @@ def _resolve(entries: list) -> dict:
     gmail_service = get_gmail_service()
     sheets_service = build("sheets", "v4", credentials=gmail_service._http.credentials)
 
-    existing_rows = sheets_service.spreadsheets().values().get(
-        spreadsheetId=_SPREADSHEET_ID,
-        range=_READ_RANGE,
-    ).execute().get("values", [])
+    existing_rows = (
+        sheets_service.spreadsheets()
+        .values()
+        .get(
+            spreadsheetId=_SPREADSHEET_ID,
+            range=_READ_RANGE,
+        )
+        .execute()
+        .get("values", [])
+    )
 
     print(f"Read {len(existing_rows)} existing rows from Tracker sheet")
 
@@ -413,14 +420,16 @@ def _resolve(entries: list) -> dict:
             company = row[1].strip()
             role = row[2].strip()
             status = row[5].strip() if len(row) > 5 else ""
-            row_records.append({
-                "row_number": row_number,
-                "status": status,
-                "company": company,
-                "role": role,
-                "company_norm": _normalize(company),
-                "role_norm": _normalize(role),
-            })
+            row_records.append(
+                {
+                    "row_number": row_number,
+                    "status": status,
+                    "company": company,
+                    "role": role,
+                    "company_norm": _normalize(company),
+                    "role_norm": _normalize(role),
+                }
+            )
 
     # Flag existing sheet rows that share an exact normalized key - a data
     # quality issue in the sheet itself. The first (lowest-numbered) row among
@@ -428,7 +437,9 @@ def _resolve(entries: list) -> dict:
     # and matching below takes the first match found.
     rows_by_exact_key = {}
     for record in row_records:
-        rows_by_exact_key.setdefault((record["company_norm"], record["role_norm"]), []).append(record)
+        rows_by_exact_key.setdefault((record["company_norm"], record["role_norm"]), []).append(
+            record
+        )
     for records in rows_by_exact_key.values():
         if len(records) > 1:
             row_numbers = [r["row_number"] for r in records]
@@ -450,38 +461,59 @@ def _resolve(entries: list) -> dict:
         entry_role_norm = _normalize(entry["role"])
         match = None
         for record in row_records:
-            if _keys_match(entry_company_norm, entry_role_norm, record["company_norm"], record["role_norm"]):
+            if _keys_match(
+                entry_company_norm, entry_role_norm, record["company_norm"], record["role_norm"]
+            ):
                 match = record
                 break
 
         if match is not None:
             row_number, existing_status = match["row_number"], match["status"]
             matched_row_numbers.add(row_number)
-            print(f"Matched entry ({entry['company']} / {entry['role']}) to existing row {row_number}")
+            print(
+                f"Matched entry ({entry['company']} / {entry['role']}) to existing row {row_number}"
+            )
             new_status = entry["status"]
             if new_status == existing_status:
-                print(f"Status unchanged for existing row {row_number} ({entry['company']} / {entry['role']})")
+                print(
+                    f"Status unchanged for existing row {row_number} ({entry['company']} / {entry['role']})"
+                )
                 unchanged_count += 1
             else:
-                print(f"Updating status of row {row_number} ({entry['company']} / {entry['role']}) to '{new_status}'")
-                updates.append({
-                    "range": f"Tracker!F{row_number}",
-                    "values": [[new_status]],
-                })
-                status_changes.append({
-                    "company": entry["company"],
-                    "role": entry["role"],
-                    "old_status": existing_status,
-                    "new_status": new_status,
-                })
+                print(
+                    f"Updating status of row {row_number} ({entry['company']} / {entry['role']}) to '{new_status}'"
+                )
+                updates.append(
+                    {
+                        "range": f"Tracker!F{row_number}",
+                        "values": [[new_status]],
+                    }
+                )
+                status_changes.append(
+                    {
+                        "company": entry["company"],
+                        "role": entry["role"],
+                        "old_status": existing_status,
+                        "new_status": new_status,
+                    }
+                )
         else:
-            print(f"No existing row matched ({entry['company']} / {entry['role']}); treating as new")
+            print(
+                f"No existing row matched ({entry['company']} / {entry['role']}); treating as new"
+            )
             print(f"Adding new row for {entry['company']} / {entry['role']} ({entry_date})")
             date_column = "" if entry_date == last_effective_date else entry_date
             last_effective_date = entry_date
-            rows_to_append.append([
-                date_column, entry["company"], entry["role"], "", entry["source"], entry["status"],
-            ])
+            rows_to_append.append(
+                [
+                    date_column,
+                    entry["company"],
+                    entry["role"],
+                    "",
+                    entry["source"],
+                    entry["status"],
+                ]
+            )
             new_rows.append(entry)
 
     unseen_rows = [
@@ -748,7 +780,9 @@ def commit_write() -> dict:
     staged_at = datetime.fromisoformat(pending["staged_at"])
     age = datetime.now(timezone.utc) - staged_at
     if age > _STALE_PENDING_WRITE_AGE:
-        return {"error": "The pending write is stale (staged more than 1 hour ago) and should be re-staged."}
+        return {
+            "error": "The pending write is stale (staged more than 1 hour ago) and should be re-staged."
+        }
 
     gmail_service = get_gmail_service()
     sheets_service = build("sheets", "v4", credentials=gmail_service._http.credentials)

@@ -25,8 +25,8 @@ def draft_reply(email: dict, intent: str) -> dict:
     prompt = f"""Write a professional email reply.
 
 Original email:
-From: {email.get('from', '')}
-Subject: {email.get('subject', '')}
+From: {email.get("from", "")}
+Subject: {email.get("subject", "")}
 Body: {body_text}
 
 User's intent for the reply: {intent}

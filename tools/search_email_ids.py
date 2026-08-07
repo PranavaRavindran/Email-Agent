@@ -46,17 +46,24 @@ def search_email_ids(query: str, max_results: int = 100) -> dict:
 
     service = get_gmail_service()
 
-    response = service.users().messages().list(
-        userId="me",
-        q=query,
-        maxResults=max_results,
-    ).execute()
+    response = (
+        service.users()
+        .messages()
+        .list(
+            userId="me",
+            q=query,
+            maxResults=max_results,
+        )
+        .execute()
+    )
 
     messages = response.get("messages", [])
     emails = [{"id": msg["id"]} for msg in messages]
 
     if response.get("nextPageToken"):
-        print(f"[search_email_ids] WARNING more results exist beyond max_results ({len(emails)} returned)")
+        print(
+            f"[search_email_ids] WARNING more results exist beyond max_results ({len(emails)} returned)"
+        )
 
     print(f"[search_email_ids] returning {len(emails)} ids")
 

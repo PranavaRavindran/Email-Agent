@@ -27,18 +27,21 @@ def _fake_service(call_log, fail_ids=None, subject="Hello", body_text="Body text
     class _FakeMessages:
         def get(self, userId, id, format=None):
             call_log.append(id)
-            return _FakeExecutable(id, {
-                "payload": {
-                    "headers": [
-                        {"name": "Subject", "value": subject},
-                        {"name": "From", "value": "a@b.com"},
-                        {"name": "To", "value": "me@example.com"},
-                        {"name": "Date", "value": "Tue, 14 Apr 2026 09:00:00 -0400"},
-                    ],
-                    "mimeType": "text/plain",
-                    "body": {"data": ged.base64.urlsafe_b64encode(body_text.encode()).decode()},
-                }
-            })
+            return _FakeExecutable(
+                id,
+                {
+                    "payload": {
+                        "headers": [
+                            {"name": "Subject", "value": subject},
+                            {"name": "From", "value": "a@b.com"},
+                            {"name": "To", "value": "me@example.com"},
+                            {"name": "Date", "value": "Tue, 14 Apr 2026 09:00:00 -0400"},
+                        ],
+                        "mimeType": "text/plain",
+                        "body": {"data": ged.base64.urlsafe_b64encode(body_text.encode()).decode()},
+                    }
+                },
+            )
 
     class _FakeUsers:
         def messages(self):
@@ -86,7 +89,9 @@ class TestGetEmailsBulk:
     def test_partial_failure_returns_error_entry_and_continues(self, monkeypatch):
         call_log = []
         monkeypatch.setattr(
-            ged, "get_thread_local_gmail_service", lambda: _fake_service(call_log, fail_ids={"id-2"})
+            ged,
+            "get_thread_local_gmail_service",
+            lambda: _fake_service(call_log, fail_ids={"id-2"}),
         )
 
         results = get_emails_bulk(["id-1", "id-2", "id-3"])

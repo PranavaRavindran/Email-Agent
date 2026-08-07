@@ -33,7 +33,7 @@ tracker_agent = Agent(
         "- preview_resolve can REFUSE, for exactly the same reason stage_write can: if "
         "fewer emails were fetched than search_email_ids returned, entries cannot have "
         "been derived from emails that were never read. When preview_resolve returns an "
-        "error dict, do not treat it as \"here are the entries I found\" or invent a "
+        'error dict, do not treat it as "here are the entries I found" or invent a '
         "partial preview from whatever you extracted anyway — report the refusal to the "
         "user plainly, using its error message, exactly as you would report a stage_write "
         "refusal.\n\n"
@@ -114,39 +114,39 @@ tracker_agent = Agent(
         "the entry came from, not a judgement. Code uses it to determine whether the "
         "group contains an application confirmation.\n"
         "- ROLE must be the job title exactly as the email states it, including "
-        "seniority words and qualifiers such as \"Associate\", \"Entry-Level\", "
-        "\"Junior\", \"I\", \"Full Stack\", \"Backend\", or \"Early Career\". Do not "
+        'seniority words and qualifiers such as "Associate", "Entry-Level", '
+        '"Junior", "I", "Full Stack", "Backend", or "Early Career". Do not '
         "paraphrase, shorten, or standardize the title, and never simplify a specific "
-        "title into a generic one such as \"Software Engineer\".\n"
+        'title into a generic one such as "Software Engineer".\n'
         "- EXCLUDE requisition numbers, reference numbers, job IDs, and posting codes "
-        "from the role. Examples of text to exclude: \"R20602\", \"JR2026512717\", "
-        "\"115821 -\", \"(Req. 2011256)\", \"- 106730\", \"reference number 29214685\", "
-        "\"(ID: 3177934)\". The same application is often described with the number in "
+        'from the role. Examples of text to exclude: "R20602", "JR2026512717", '
+        '"115821 -", "(Req. 2011256)", "- 106730", "reference number 29214685", '
+        '"(ID: 3177934)". The same application is often described with the number in '
         "one email and without it in another, so including it splits one application "
         "into two entries.\n"
         "- COMPANY must be the full company name exactly as the email states it, "
-        "excluding only a trailing office location such as \"- Charlotte, NC\". Do not "
+        'excluding only a trailing office location such as "- Charlotte, NC". Do not '
         "shorten or expand the name. If different emails give different forms of the "
         "name, use the longest form that appears.\n"
         "- The merge rule below is about comparing two entries with each other. It is "
         "NEVER a licence to delete text from a role title. Always record the role title "
         "in full.\n"
         "- Keep everything descriptive in the role title: program or cohort names "
-        "(\"FutureNow\", \"2026 ELH\"), assessment or track names (\"Beginner Coding "
-        "Assessment (NCG) - Desktop Application\"), region or site qualifiers that are "
-        "part of the posted title (\"(US)\", \"- Chicago\", \"(Princeton)\", "
-        "\"(Simulation)\"), and seniority words. The ONLY things to exclude are "
+        '("FutureNow", "2026 ELH"), assessment or track names ("Beginner Coding '
+        'Assessment (NCG) - Desktop Application"), region or site qualifiers that are '
+        'part of the posted title ("(US)", "- Chicago", "(Princeton)", '
+        '"(Simulation)"), and seniority words. The ONLY things to exclude are '
         "requisition numbers, reference numbers, job IDs, and posting codes such as "
-        "\"R20602\", \"JR2026512717\", \"115821 -\", \"(Req. 2011256)\", \"- 106730\", "
-        "\"reference number 29214685\", \"(ID: 3177934)\".\n"
+        '"R20602", "JR2026512717", "115821 -", "(Req. 2011256)", "- 106730", '
+        '"reference number 29214685", "(ID: 3177934)".\n'
         "- When comparing two entries at the same company: they are the SAME "
         "application if their role titles differ only by a requisition or reference "
         "number or by punctuation. They are SEPARATE applications if the titles "
-        "themselves differ, for example \"Software Developer\" and \"Associate Data "
-        "Engineer\". When merging two entries, keep the LONGER, more complete role "
+        'themselves differ, for example "Software Developer" and "Associate Data '
+        'Engineer". When merging two entries, keep the LONGER, more complete role '
         "title — never the shortened one.\n"
-        "- Search Gmail with query: \"subject:(application OR applied OR interview OR "
-        "offer OR status OR submitted OR received OR assessment OR regret)\"\n"
+        '- Search Gmail with query: "subject:(application OR applied OR interview OR '
+        'offer OR status OR submitted OR received OR assessment OR regret)"\n'
         "- search_email_ids returns message ids ONLY. It provides no subject, "
         "sender, date, or preview text. You MUST fetch every single id returned "
         "before determining any company, role, date, or status. There is no other "
@@ -161,7 +161,7 @@ tracker_agent = Agent(
         "subset, and never stop early. If the search returns 48 ids, you must read "
         "all 48 — either via one get_emails_bulk call with all 48 ids, or 48 "
         "individual get_email_detail calls.\n"
-        "- If get_emails_bulk returns an \"error\" entry for any id, that email was "
+        '- If get_emails_bulk returns an "error" entry for any id, that email was '
         "NOT read. Do not fabricate or guess its content. If any id could not be "
         "read, you must report that and stage nothing, exactly as when a single "
         "get_email_detail call fails.\n"
@@ -178,7 +178,7 @@ tracker_agent = Agent(
         "group established. Group context NEVER overrides an outcome the email "
         "itself states.\n"
         "  - Only when the most recent email states no clear outcome — for example "
-        "wording like \"submitted\", \"received\", or \"completed\" that could mean "
+        'wording like "submitted", "received", or "completed" that could mean '
         "either a new application or a step within an already-advanced process — use "
         "the rest of the group to disambiguate. In that case, if an earlier email "
         "already advanced the candidate to Interviewing, the later ambiguous email "
@@ -199,8 +199,8 @@ tracker_agent = Agent(
         "withdrawn, closed, put on hold, paused, or is no longer being filled means "
         "the application is no longer live, and the status is Rejected. This applies "
         "even when the candidate was never evaluated or declined — the outcome for "
-        "the application is the same. Wording like \"we hope you will consider us "
-        "again in the future\" or an invitation to watch the careers page does not "
+        'the application is the same. Wording like "we hope you will consider us '
+        'again in the future" or an invitation to watch the careers page does not '
         "change this. There is no separate status for a cancelled requisition; use "
         "Rejected. A group that had reached Applied or Interviewing DOES move to "
         "Rejected when a later email states the position is cancelled, withdrawn, "
@@ -219,7 +219,7 @@ tracker_agent = Agent(
         "- The four types are: application confirmation, rejection, interview or next "
         "steps, and offer.\n"
         "- An email frequently contains polite opening boilerplate that restates the "
-        "application (\"thank you for applying\", \"thank you for your interest\") "
+        'application ("thank you for applying", "thank you for your interest") '
         "before delivering a different outcome. This boilerplate never determines the "
         "type. The type is determined by the OUTCOME the email communicates. If an "
         "email both acknowledges the application and communicates a rejection, it is a "
@@ -231,8 +231,8 @@ tracker_agent = Agent(
         "an assessment invitation is expiring is also Interviewing.\n"
         "  - Completing or submitting a screening, assessment, interview, or "
         "take-home is ALSO Interviewing, exactly like being invited to one. Wording "
-        "such as \"your screening has been successfully submitted\", \"your "
-        "assessment is complete\", or \"thank you for completing your interview\" "
+        'such as "your screening has been successfully submitted", "your '
+        'assessment is complete", or "thank you for completing your interview" '
         "refers to a step WITHIN the interview process — it is not an application "
         "confirmation, even though it uses words like submitted or received. Read "
         "carefully what was submitted: if the email says an APPLICATION was "
@@ -255,5 +255,12 @@ tracker_agent = Agent(
         "The stage_write function requires a list of dicts with keys: date, company, "
         "role, source, status. Always pass source as 'Email' for all intents."
     ),
-    tools=[search_email_ids, get_email_detail, get_emails_bulk, stage_write, commit_write, preview_resolve],
+    tools=[
+        search_email_ids,
+        get_email_detail,
+        get_emails_bulk,
+        stage_write,
+        commit_write,
+        preview_resolve,
+    ],
 )

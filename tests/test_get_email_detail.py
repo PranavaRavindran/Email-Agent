@@ -12,18 +12,20 @@ def _fake_service(call_log, subject="Hello", body_text="Body text"):
     class _FakeMessages:
         def get(self, userId, id, format=None):
             call_log.append(id)
-            return _FakeExecutable({
-                "payload": {
-                    "headers": [
-                        {"name": "Subject", "value": subject},
-                        {"name": "From", "value": "a@b.com"},
-                        {"name": "To", "value": "me@example.com"},
-                        {"name": "Date", "value": "Tue, 14 Apr 2026 09:00:00 -0400"},
-                    ],
-                    "mimeType": "text/plain",
-                    "body": {"data": ged.base64.urlsafe_b64encode(body_text.encode()).decode()},
+            return _FakeExecutable(
+                {
+                    "payload": {
+                        "headers": [
+                            {"name": "Subject", "value": subject},
+                            {"name": "From", "value": "a@b.com"},
+                            {"name": "To", "value": "me@example.com"},
+                            {"name": "Date", "value": "Tue, 14 Apr 2026 09:00:00 -0400"},
+                        ],
+                        "mimeType": "text/plain",
+                        "body": {"data": ged.base64.urlsafe_b64encode(body_text.encode()).decode()},
+                    }
                 }
-            })
+            )
 
     class _FakeUsers:
         def messages(self):

@@ -38,8 +38,7 @@ def get_emails_bulk(email_ids: list) -> dict:
             max_workers=min(_MAX_WORKERS, len(uncached_ids))
         ) as executor:
             future_to_id = {
-                executor.submit(_fetch_one, email_id, True): email_id
-                for email_id in uncached_ids
+                executor.submit(_fetch_one, email_id, True): email_id for email_id in uncached_ids
             }
             for future in concurrent.futures.as_completed(future_to_id):
                 email_id = future_to_id[future]

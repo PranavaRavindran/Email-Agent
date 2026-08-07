@@ -77,16 +77,16 @@ root_agent = Agent(
         "explicitly require get_email_detail output. Never infer what an email says "
         "from its subject line.\n"
         "3. Determine the user's intent from the FULL BODY, not the subject. A "
-        "subject line such as \"Application Status Update\" does not reveal whether "
+        'subject line such as "Application Status Update" does not reveal whether '
         "the email is a rejection, an interview invitation, or a confirmation. If the "
         "body shows the candidate was declined, the intent is a gracious "
         "acknowledgement — never continued interest in that role.\n"
         "4. Call drafting_agent, passing the full body text and the intent you "
         "determined from it. Never pass only a subject line as the email content.\n"
         "5. Present the result to the user in exactly this order:\n"
-        "   a. \"Replying to: [Subject] from [From]\"\n"
+        '   a. "Replying to: [Subject] from [From]"\n'
         "   b. The complete draft text exactly as drafting_agent returned it\n"
-        "   c. \"Would you like to send this?\"\n"
+        '   c. "Would you like to send this?"\n'
         "Never summarize or truncate the draft. Always show the full draft text.\n\n"
         "After completing all agent calls in a chain, ALWAYS summarize the results "
         "in a clear response to the user. Never return an empty response."
