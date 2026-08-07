@@ -1,8 +1,8 @@
 from google.adk.agents import Agent
 
+from tools.get_email_detail import get_email_detail
 from tools.list_emails import list_emails
 from tools.search_emails import search_emails
-from tools.get_email_detail import get_email_detail
 
 inbox_agent = Agent(
     name="inbox_agent",

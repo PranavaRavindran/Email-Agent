@@ -62,7 +62,8 @@ def search_email_ids(query: str, max_results: int = 100) -> dict:
 
     if response.get("nextPageToken"):
         print(
-            f"[search_email_ids] WARNING more results exist beyond max_results ({len(emails)} returned)"
+            f"[search_email_ids] WARNING more results exist beyond max_results "
+            f"({len(emails)} returned)"
         )
 
     print(f"[search_email_ids] returning {len(emails)} ids")

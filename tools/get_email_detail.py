@@ -68,7 +68,8 @@ def _fetch_one(email_id: str, quiet: bool = False) -> dict:
     body = _extract_body(msg["payload"])
     if not body:
         print(
-            f"[get_email_detail] WARNING empty body for id {email_id} subject {headers.get('Subject', '')}"
+            f"[get_email_detail] WARNING empty body for id {email_id} "
+            f"subject {headers.get('Subject', '')}"
         )
     if len(body) > _MAX_BODY_LENGTH:
         body = body[:_MAX_BODY_LENGTH] + "...[truncated]"

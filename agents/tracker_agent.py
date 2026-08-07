@@ -4,7 +4,7 @@ from google.genai.types import GenerateContentConfig
 from tools.get_email_detail import get_email_detail
 from tools.get_emails_bulk import get_emails_bulk
 from tools.search_email_ids import search_email_ids
-from tools.write_to_sheet import stage_write, commit_write, preview_resolve
+from tools.write_to_sheet import commit_write, preview_resolve, stage_write
 
 tracker_agent = Agent(
     name="tracker_agent",

@@ -513,7 +513,8 @@ def _select_confirmation(
     def _end_of_scan():
         if weak_match is not None:
             print(
-                f"[find_application_date] using weak match {weak_match['email_id']} (no role identified)"
+                f"[find_application_date] using weak match {weak_match['email_id']} "
+                f"(no role identified)"
             )
             return weak_match
         print(f"[find_application_date] no match within {max_candidates} candidates")
@@ -543,12 +544,14 @@ def _select_confirmation(
         if intent["communicates_outcome"]:
             if _no_identifying_info(subject, body, role, source_text):
                 print(
-                    f"{prefix} -> outcome, no identifying information, assuming same application, stopping search"
+                    f"{prefix} -> outcome, no identifying information, assuming same "
+                    f"application, stopping search"
                 )
                 return _end_of_scan()
             if _outcome_role_matches(subject, body, role, source_text):
                 print(
-                    f"{prefix} -> skipped: communicates an outcome (rejection/interview/offer), stopping search"
+                    f"{prefix} -> skipped: communicates an outcome "
+                    f"(rejection/interview/offer), stopping search"
                 )
                 return _end_of_scan()
             print(f"{prefix} -> skipped: outcome for a different role")

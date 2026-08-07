@@ -33,7 +33,8 @@ def search_emails(query: str, max_results: int = 20) -> dict:
 
     if response.get("nextPageToken"):
         print(
-            f"[search_emails] WARNING more results exist beyond max_results ({len(messages)} returned)"
+            f"[search_emails] WARNING more results exist beyond max_results "
+            f"({len(messages)} returned)"
         )
 
     for msg in messages:

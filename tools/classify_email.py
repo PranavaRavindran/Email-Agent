@@ -58,9 +58,12 @@ Examples:
 - A job board digest listing new postings ("5 new jobs match your search") -> fyi
 - A security alert about a new sign-in to the user's account -> urgent
 - A "thanks for applying, we've decided to move forward with other candidates" email -> fyi
-- A recruiter's mass outreach message sent to many candidates about an open role, with no scheduling ask -> fyi
-- A recruiter emailing the user directly asking them to pick a time for a call, or to respond by a given date -> action_needed
-- An email from the user's direct manager asking them by name to do something by a specific date -> action_needed
+- A recruiter's mass outreach message sent to many candidates about an open \
+role, with no scheduling ask -> fyi
+- A recruiter emailing the user directly asking them to pick a time for a \
+call, or to respond by a given date -> action_needed
+- An email from the user's direct manager asking them by name to do \
+something by a specific date -> action_needed
 
 Respond ONLY with the JSON object, no markdown fences or extra text."""
 

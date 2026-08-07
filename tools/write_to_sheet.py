@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from googleapiclient.discovery import build
 
@@ -145,7 +145,7 @@ def _log_run(
     a logging failure must not affect stage_write's return value."""
     try:
         line = {
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "entries_received": entries_received,
             "new": new,
             "status_changes": status_changes,
@@ -476,12 +476,14 @@ def _resolve(entries: list) -> dict:
             new_status = entry["status"]
             if new_status == existing_status:
                 print(
-                    f"Status unchanged for existing row {row_number} ({entry['company']} / {entry['role']})"
+                    f"Status unchanged for existing row {row_number} "
+                    f"({entry['company']} / {entry['role']})"
                 )
                 unchanged_count += 1
             else:
                 print(
-                    f"Updating status of row {row_number} ({entry['company']} / {entry['role']}) to '{new_status}'"
+                    f"Updating status of row {row_number} ({entry['company']} / "
+                    f"{entry['role']}) to '{new_status}'"
                 )
                 updates.append(
                     {
@@ -713,7 +715,7 @@ def stage_write(entries: list) -> dict:
         "updates": resolved["updates"],
         "rows_to_append": resolved["rows_to_append"],
         "last_data_row": resolved["last_data_row"],
-        "staged_at": datetime.now(timezone.utc).isoformat(),
+        "staged_at": datetime.now(UTC).isoformat(),
         "diff": {
             "new_rows": new_rows,
             "status_changes": status_changes,
@@ -778,10 +780,11 @@ def commit_write() -> dict:
         pending = json.load(f)
 
     staged_at = datetime.fromisoformat(pending["staged_at"])
-    age = datetime.now(timezone.utc) - staged_at
+    age = datetime.now(UTC) - staged_at
     if age > _STALE_PENDING_WRITE_AGE:
         return {
-            "error": "The pending write is stale (staged more than 1 hour ago) and should be re-staged."
+            "error": "The pending write is stale (staged more than 1 hour ago) "
+            "and should be re-staged."
         }
 
     gmail_service = get_gmail_service()

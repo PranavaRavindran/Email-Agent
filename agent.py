@@ -2,9 +2,9 @@ from google.adk.agents import Agent
 from google.adk.tools import AgentTool
 from google.genai.types import GenerateContentConfig
 
-from agents.inbox_agent import inbox_agent
 from agents.classification_agent import classification_agent
 from agents.drafting_agent import drafting_agent
+from agents.inbox_agent import inbox_agent
 from agents.tracker_agent import tracker_agent
 
 root_agent = Agent(

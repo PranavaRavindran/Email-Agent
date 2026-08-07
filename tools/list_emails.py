@@ -29,7 +29,8 @@ def list_emails(max_results: int = 20) -> dict:
 
     if response.get("nextPageToken"):
         print(
-            f"[list_emails] WARNING more results exist beyond max_results ({len(messages)} returned)"
+            f"[list_emails] WARNING more results exist beyond max_results "
+            f"({len(messages)} returned)"
         )
 
     for msg in messages:

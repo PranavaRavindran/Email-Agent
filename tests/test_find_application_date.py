@@ -1,11 +1,8 @@
 from datetime import datetime
 
 from find_application_date import (
-    _looks_like_confirmation,
     _same_role,
     _select_confirmation,
-    find_application_date,
-    is_confirmation_email,
 )
 
 _CONFIRMATION_BODY = (
