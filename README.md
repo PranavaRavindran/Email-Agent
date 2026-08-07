@@ -1,5 +1,7 @@
 # Email Intelligence Agent
 
+[![CI](https://github.com/PranavaRavindran/Email-Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/PranavaRavindran/Email-Agent/actions/workflows/ci.yml)
+
 A multi-agent system built on Google's Agent Development Kit (ADK) that reads a
 Gmail inbox, classifies and prioritises messages, drafts replies for review, and
 maintains a job application tracker in Google Sheets.
@@ -185,6 +187,13 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 export GOOGLE_API_KEY="your-key"
+```
+
+For linting, type checking, and running tests locally (the same checks CI
+runs), also install `requirements-dev.txt`:
+
+```
+pip install -r requirements-dev.txt
 ```
 
 Place your OAuth client secret at `credentials.json` in the project root. Both
