@@ -27,6 +27,14 @@
             "text_property": "The reply is a gracious, professional acknowledgement appropriate to a rejection."
           },
           "description": "Checks overall tone independent of the specific continued-interest regression above."
+        },
+        {
+          "rubric_id": "notes_no_reply_address",
+          "type": "FINAL_RESPONSE_QUALITY",
+          "rubric_content": {
+            "text_property": "If the source email states it is a no-reply address, the response notes that a reply may not be received."
+          },
+          "description": "On the 2026-08-08 live run, the judge flagged unprompted that the Cisco email says 'This is a post-only email. Please do not reply' while the agent drafted a reply anyway, and explicitly ruled it out of scope because no rubric covered it. This rubric closes that gap."
         }
       ]
     },

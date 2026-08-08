@@ -52,6 +52,36 @@ Metric: final_response_match_v2, Status: PASSED, Score: 1.0, Threshold: 0.8
 ---------------------------------------------------------------------
 """
 
+# Modeled on the 2026-08-08 live run, where a depleted Gemini API quota
+# produced backoff-and-retry output like this for tracker and
+# tracker_preview before eventually giving up.
+CAPTURED_429_BLOCK = """\
+ERROR:google.genai.errors:429 RESOURCE_EXHAUSTED. {'error': {'code': 429, \
+'message': 'Resource has been exhausted (e.g. check quota).', 'status': \
+'RESOURCE_EXHAUSTED'}}
+Retrying request after 429 RESOURCE_EXHAUSTED, attempt 1...
+Retrying request after 429 RESOURCE_EXHAUSTED, attempt 2...
+google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED
+"""
+
+# Also modeled on the 2026-08-08 run: ADK printed "Overall Eval Status:
+# FAILED" for tracker and tracker_preview, but inference never actually ran
+# for the metric - it came back NOT_EVALUATED, not a real failed assertion.
+CAPTURED_FAILED_NOT_EVALUATED_BLOCK = """\
+*********************************************************************
+Eval Run Summary
+tracker:
+  Tests passed: 0
+  Tests failed: 1
+********************************************************************
+Eval Set Id: tracker_staging
+Eval Id: tracker_stages_without_committing
+Overall Eval Status: FAILED
+---------------------------------------------------------------------
+Metric: final_response_match_v2, Status: NOT_EVALUATED, Score: None, Threshold: 0.3
+---------------------------------------------------------------------
+"""
+
 # adk always exits 0 here, matching the real (buggy-to-rely-on) behavior.
 FAKE_ADK = (
     r"""#!/usr/bin/env bash
@@ -66,6 +96,30 @@ if [ -n "${FAKE_ADK_ERROR_CASE:-}" ]; then
   case "$eval_file" in
     *"$FAKE_ADK_ERROR_CASE"*)
       echo "some unexpected crash output with no verdict line"
+      exit 0
+      ;;
+  esac
+fi
+
+if [ -n "${FAKE_ADK_429_CASE:-}" ]; then
+  case "$eval_file" in
+    *"$FAKE_ADK_429_CASE"*)
+      cat <<'BLOCK'
+"""
+    + CAPTURED_429_BLOCK
+    + """BLOCK
+      exit 0
+      ;;
+  esac
+fi
+
+if [ -n "${FAKE_ADK_NOT_EVALUATED_CASE:-}" ]; then
+  case "$eval_file" in
+    *"$FAKE_ADK_NOT_EVALUATED_CASE"*)
+      cat <<'BLOCK'
+"""
+    + CAPTURED_FAILED_NOT_EVALUATED_BLOCK
+    + """BLOCK
       exit 0
       ;;
   esac
@@ -177,3 +231,45 @@ class TestRunEvalsPassFailDetection:
         # must still reach stdout as it runs, not just at the end.
         result = _run(tmp_path, {"FAKE_ADK_FAIL_CASE": "routing"})
         assert "Eval Id: attention_request_routes_through_classification" in result.stdout
+
+    def test_not_evaluated_with_failed_verdict_is_error_not_failed(self, tmp_path):
+        # "tracker_staging" (not "tracker") to avoid also matching the
+        # unrelated "tracker_preview" eval file, which shares the "tracker"
+        # substring.
+        result = _run(tmp_path, {"FAKE_ADK_NOT_EVALUATED_CASE": "tracker_staging"})
+        summary = _summary_lines(result.stdout)
+
+        tracker_line = _case_line(summary, "tracker")
+        assert "ERROR" in tracker_line
+        assert "FAILED" not in tracker_line
+        assert result.returncode != 0
+
+    def test_not_evaluated_other_cases_still_run(self, tmp_path):
+        result = _run(tmp_path, {"FAKE_ADK_NOT_EVALUATED_CASE": "tracker_staging"})
+        summary = _summary_lines(result.stdout)
+
+        preview_line = _case_line(summary, "tracker_preview")
+        assert "PASSED" in preview_line
+
+
+class TestRunEvalsQuotaExhaustion:
+    def test_429_resource_exhausted_aborts_the_run(self, tmp_path):
+        result = _run(tmp_path, {"FAKE_ADK_429_CASE": "drafting"})
+        assert result.returncode != 0
+        assert "ABORTING" in result.stderr
+        assert "RESOURCE_EXHAUSTED" in result.stderr
+
+    def test_429_stops_before_remaining_cases_run(self, tmp_path):
+        # drafting is the third of five cases; tracker and tracker_preview
+        # come after it and must never start once quota is depleted.
+        result = _run(tmp_path, {"FAKE_ADK_429_CASE": "drafting"})
+        assert "Case: tracker" not in result.stdout
+
+    def test_429_does_not_print_a_summary(self, tmp_path):
+        result = _run(tmp_path, {"FAKE_ADK_429_CASE": "drafting"})
+        assert "\nSummary\n" not in result.stdout
+
+    def test_earlier_cases_still_ran_before_the_abort(self, tmp_path):
+        result = _run(tmp_path, {"FAKE_ADK_429_CASE": "drafting"})
+        assert "Case: inbox_listing" in result.stdout
+        assert "Case: routing" in result.stdout

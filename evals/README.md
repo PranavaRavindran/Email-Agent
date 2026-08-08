@@ -5,10 +5,12 @@
 The standard way to run the full suite is `./run_evals.sh` from the project
 root. It runs all 5 cases in sequence with their correct config files (the
 pairings below), prints a banner before each case, continues through all 5
-even if one fails, and prints a pass/fail summary table at the end. Pass a
-short case name to run just one, e.g. `./run_evals.sh drafting`. It exits
-early with a clear message if `GOOGLE_API_KEY` is unset. `run_evals.sh` is
-deliberately not part of CI — see "Why this isn't run automatically" below.
+even if one fails or errors, and prints a pass/fail summary table at the
+end. Pass a short case name to run just one, e.g. `./run_evals.sh drafting`.
+It exits early with a clear message if `GOOGLE_API_KEY` is unset.
+`run_evals.sh` is deliberately not part of CI — see "Why this isn't run
+automatically" below. The one exception to "continues through all 5" is API
+quota exhaustion — see "Quota exhaustion aborts the run" below.
 
 The individual `adk eval` invocations it wraps, for reference or manual use:
 
@@ -45,14 +47,38 @@ call arguments as reproducible as possible across runs, since
 helps but does not fully eliminate run-to-run variance — see the per-case
 notes below.
 
+## Quota exhaustion aborts the run
+
+`run_evals.sh` scans each case's captured output for `429` and
+`RESOURCE_EXHAUSTED` together — the signature of a depleted Gemini API
+quota — and if it finds both, prints an `ABORTING` message to stderr and
+exits immediately without running the remaining cases. This is deliberate:
+a depleted quota does not recover mid-run, and letting the loop continue
+means every remaining case burns roughly 20 minutes on exponential backoff
+before its own call finally gives up. On the 2026-08-08 run this is exactly
+what happened to `tracker/tracker_staging.test.json` and
+`tracker_preview.test.json` — quota was exhausted partway through, and both
+cases ran their full backoff cycle for nothing.
+
+Separately, `run_evals.sh` treats a case as `ERROR` (not `FAILED` or
+`PASSED`) whenever its output contains `429` or `NOT_EVALUATED`, even if ADK
+also printed `Overall Eval Status: FAILED` for that case. On the same
+2026-08-08 run, `tracker` and `tracker_preview` were reported `FAILED` by
+ADK's own verdict line despite inference never actually running for the
+metric in question — a `NOT_EVALUATED` metric status is not a failed
+assertion, and treating it as `FAILED` in the summary table would read as
+"the agent produced the wrong output" when what actually happened is "the
+judge never ran." `ERROR` makes that distinction visible in the summary
+without requiring a re-read of the full log to catch it.
+
 ## Eval cases
 
 | File | eval_id | Asserts |
 | --- | --- | --- |
-| `tracker/tracker_staging.test.json` | `tracker_stages_without_committing` | A tracker update request calls `tracker_agent` once, stages new entries, and never commits them — the confirm-before-write guarantee. Judged with `tracker/test_config.json` (`final_response_match_v2` only — no trajectory score; see note below). |
+| `tracker/tracker_staging.test.json` | `tracker_stages_without_committing` | A tracker update request calls `tracker_agent` once, stages new entries, and never commits them — the confirm-before-write guarantee. Judged with `tracker/test_config.json`: `rubric_based_final_response_quality_v1` (states entries were staged, states nothing written yet, asks for confirmation) is the real signal; `final_response_match_v2` is kept only at a lowered threshold of `0.3` — see "Stale references aren't just a trajectory problem" below. No trajectory score; see note below. |
 | `inbox_listing.test.json` | `inbox_lists_recent_emails` | A plain "show me my recent emails" request is answered by a single `inbox_agent` call — no unnecessary routing through classification. |
-| `routing/routing_classification.test.json` | `attention_request_routes_through_classification` | A "what needs my attention" request produces a response with emails grouped into priority categories (Urgent, Action Needed, FYI) — output only `classification_agent`'s involvement can produce, since `inbox_agent` alone would return a flat, uncategorized list. Judged with `routing/test_config.json` (`final_response_match_v2` only — no trajectory score; see note below). |
-| `drafting/drafting_rejection.test.json` | `rejection_reply_does_not_express_continued_interest` | A reply drafted to a rejection email is a gracious acknowledgement that does NOT express continued interest in the declined role or ask about next steps for it. Guards against the drafting agent judging outcome from the subject line instead of the body. This is the most valuable case in the set. Judged with `drafting/test_config.json` (`final_response_match_v2` only — no trajectory score; see note below). |
+| `routing/routing_classification.test.json` | `attention_request_routes_through_classification` | A "what needs my attention" request produces a response with emails grouped into priority categories (Urgent, Action Needed, FYI) — output only `classification_agent`'s involvement can produce, since `inbox_agent` alone would return a flat, uncategorized list. Judged with `routing/test_config.json`: `rubric_based_final_response_quality_v1` (grouping into Urgent/Action Needed, security alerts under Urgent, rejections/marketing not Action Needed, all emails accounted for) is the real signal; `final_response_match_v2` is kept only at a lowered threshold of `0.3` — see "Stale references aren't just a trajectory problem" below. No trajectory score; see note below. |
+| `drafting/drafting_rejection.test.json` | `rejection_reply_does_not_express_continued_interest` | A reply drafted to a rejection email is a gracious acknowledgement that does NOT express continued interest in the declined role or ask about next steps for it. Guards against the drafting agent judging outcome from the subject line instead of the body. This is the most valuable case in the set. Judged with `drafting/test_config.json`: `final_response_match_v2`, `rubric_based_final_response_quality_v1`, and `rubric_based_tool_use_quality_v1` — no trajectory score; see note below. |
 | `tracker_preview.test.json` | `preview_does_not_stage` | A preview request ("show me what you'd add, but don't write anything") calls `tracker_agent` once and the response explicitly states nothing was staged or written. |
 
 ## Known live-run failures (historical)
@@ -73,7 +99,8 @@ The two substance-level bugs previously tracked here are both now fixed:
   1.0 match against the correct reference, so a PASSED score on this metric
   alone should not be trusted here — always read `actual_response`. The case
   now lives in `evals/drafting/` and is judged with `drafting/test_config.json`
-  (`final_response_match_v2` only, no trajectory score — see below).
+  (`final_response_match_v2` plus rubric-based metrics, no trajectory score
+  — see below).
 - **`tracker_preview.test.json`**: across three live runs, the final
   response never explicitly stated that nothing was staged or written, and
   one run's response used stage-diff vocabulary ("I found 34 new entries and
@@ -82,10 +109,34 @@ The two substance-level bugs previously tracked here are both now fixed:
   suggesting `stage_write` may have actually run despite the user saying
   "don't write anything". This preview-staging bug is also fixed.
 
-Routing, drafting, and tracker staging are all now judged on response content
-only (`final_response_match_v2`), not trajectory — see the per-case notes
-below for why exact trajectory matching was unsuitable for each regardless of
-the fixes above.
+On the 2026-08-08 live run, two more failures surfaced, both false failures
+against stale reference responses rather than agent bugs — see "Stale
+references aren't just a trajectory problem" below for the fix:
+
+- **`routing/routing_classification.test.json`** scored `0.0` on
+  `final_response_match_v2` while producing exactly the grouping the case
+  asserts (Urgent / Action Needed / a residual bucket). The reference
+  response recorded in the `.test.json` names an email ("Quarterly Report
+  Due from jane@example.com") that doesn't exist in the live inbox the run
+  was scored against, so the similarity judge was comparing correct output
+  to emails that no longer exist.
+- **`tracker/tracker_staging.test.json`** scored `0.0` on the same metric
+  for the same reason, while `hallucinations_v1` — which checks grounding,
+  not resemblance to a fixed reference — scored a full `1.0` on that run.
+
+Separately, the same run's judge flagged (unprompted, since no rubric
+covered it) that the Cisco email in `drafting/drafting_rejection.test.json`
+states "This is a post-only email. Please do not reply", yet the agent
+drafted a reply anyway. `rubric_based_final_response_quality_v1` for that
+case now includes a rubric for this.
+
+Routing, drafting, and tracker staging are all now judged on response
+content, not trajectory — see the per-case notes below for why exact
+trajectory matching was unsuitable for each regardless of the fixes above.
+Routing and tracker staging combine `final_response_match_v2` with
+`rubric_based_final_response_quality_v1` (see "Stale references aren't just
+a trajectory problem" below); drafting combines it with
+`rubric_based_final_response_quality_v1` and `rubric_based_tool_use_quality_v1`.
 
 `routing/routing_classification.test.json`'s problem was never about
 `root_agent`'s behavior — it was that `classification_agent`'s args embed
@@ -93,17 +144,17 @@ the fixes above.
 varies run to run regardless of temperature, so `tool_trajectory_avg_score`
 could never reliably pass for this case no matter how correct the routing
 was. It lives in `evals/routing/` with its own `test_config.json` that omits
-`tool_trajectory_avg_score` and scores only `final_response_match_v2`; see
-the case's `description` field and the table entry above for what the
-reference response asserts instead.
+`tool_trajectory_avg_score`; see the case's `description` field and the
+table entry above for what the reference response and rubrics assert
+instead.
 
 `drafting/drafting_rejection.test.json`'s trajectory assertion was likewise
 removed regardless of the delegation fix above: `drafting_agent`'s args
 embed the full email body and a freeform intent phrase, neither of which is
 reliably reproducible across runs. It lives in `evals/drafting/` with its
-own `test_config.json`, scoring only `final_response_match_v2`; see the
-case's `description` field for the full detail, including the false-positive
-note on the old buggy reply.
+own `test_config.json`, scoring `final_response_match_v2` alongside its
+rubric-based metrics; see the case's `description` field for the full
+detail, including the false-positive note on the old buggy reply.
 
 `tracker/tracker_staging.test.json`'s trajectory assertion was removed for a
 similar reason: `root_agent` paraphrases the user's request when delegating
@@ -111,9 +162,11 @@ to `tracker_agent` (e.g. "INTENT 2: Stage a write to the job application
 tracker with application emails from June and July 2026" instead of the
 verbatim request), so an exact match on the `request` arg passed to
 `tracker_agent` cannot reliably pass. It lives in `evals/tracker/` with its
-own `test_config.json`, scoring only `final_response_match_v2`; see the
-case's `description` field for detail. The staged-not-written assertion
-rests entirely on the judged response.
+own `test_config.json`; see the case's `description` field for detail. The
+staged-not-written assertion rests entirely on the judged response — now
+primarily its `rubric_based_final_response_quality_v1` rubrics rather than
+`final_response_match_v2`, per "Stale references aren't just a trajectory
+problem" below.
 
 ## What the trajectory assertion can and can't see
 
@@ -131,9 +184,9 @@ made through the judged final response instead of the trajectory — see
 
 | Metric | Measures | Used in |
 | --- | --- | --- |
-| `final_response_match_v2` | LLM-judged similarity of the final response to a fixed reference response. | All 5 cases. |
+| `final_response_match_v2` | LLM-judged similarity of the final response to a fixed reference response. | All 5 cases. Threshold `0.8` on `inbox_listing.test.json`, `tracker_preview.test.json`, and `drafting/drafting_rejection.test.json`; lowered to `0.3` on `routing/routing_classification.test.json` and `tracker/tracker_staging.test.json`, where the reference is inherently stale — see "Stale references aren't just a trajectory problem" below. |
 | `tool_trajectory_avg_score` | Exact match of tool names and args against a reference trajectory. | `inbox_listing.test.json`, `tracker_preview.test.json` only (via `evals/test_config.json`) — see "What the trajectory assertion can and can't see" above and the rejected-alternative note below for why the other three cases don't use it. |
-| `rubric_based_final_response_quality_v1` | LLM-judged pass/fail against a list of specific, independent yes/no criteria (rubrics) about the final response — not similarity to any reference text. | `drafting/drafting_rejection.test.json`, alongside `final_response_match_v2`. |
+| `rubric_based_final_response_quality_v1` | LLM-judged pass/fail against a list of specific, independent yes/no criteria (rubrics) about the final response — not similarity to any reference text. | `drafting/drafting_rejection.test.json`, `routing/routing_classification.test.json`, and `tracker/tracker_staging.test.json`, alongside `final_response_match_v2` on each. |
 | `rubric_based_tool_use_quality_v1` | Same rubric mechanism as above, applied to the agent's tool-use behavior rather than its final text. | `drafting/drafting_rejection.test.json`. |
 | `hallucinations_v1` | LLM-judged check of whether claims made in the response(s) are actually grounded in the tool outputs the agent had access to. | `tracker/tracker_staging.test.json`. |
 
@@ -180,6 +233,53 @@ ordering constraint. This is why rubric-based and hallucination metrics
 (LLM-judged, not exact-matched) were added instead of loosening the match
 type.
 
+## Stale references aren't just a trajectory problem
+
+"What the trajectory assertion can and can't see" above and the
+`tool_trajectory_avg_score` per-case notes describe why exact trajectory
+matching breaks when tool args embed live, per-run content. The same
+structural problem also applies to `final_response_match_v2`, and the
+2026-08-08 live run (see "Known live-run failures (historical)" above)
+demonstrated it: `routing/routing_classification.test.json` and
+`tracker/tracker_staging.test.json` both scored `0.0` while producing
+correct output, because each case's `.test.json` reference response was
+recorded against a specific inbox snapshot — it names actual senders and
+subjects (e.g. "Quarterly Report Due from jane@example.com" in the routing
+case) that existed at recording time. Once the live inbox moves on, a
+correct response naming *today's* emails has essentially no lexical overlap
+with a reference naming emails that no longer exist, and the similarity
+judge scores it low regardless of whether the categorization or staging
+behavior was correct. A fixed reference response is a snapshot of one
+inbox's contents, not a specification of the behavior being tested — the
+same distinction the trajectory notes above draw between "exact match to a
+recorded call" and "the property that call needs to satisfy."
+
+The fix is the same fix already applied to trajectory scoring: assert
+properties, not resemblance. Both cases now carry a
+`rubric_based_final_response_quality_v1` criterion (see their
+`test_config.json`) that asks content-based questions with no dependency on
+which specific emails are in the inbox — e.g. "does the response group
+emails into Urgent and Action Needed" rather than "does the response
+resemble this specific list of named emails." `final_response_match_v2` is
+kept on both cases rather than dropped, but its threshold is lowered to
+`0.3`: low enough that a stale-reference false failure like the one above
+can't fail the case on its own, while it still functions as a weak
+secondary signal (a near-zero score alongside a rubric pass is worth
+noticing, even if it shouldn't fail the run by itself). This mirrors how
+`final_response_match_v2` is deliberately kept alongside
+`rubric_based_final_response_quality_v1` on the drafting case for the
+opposite reason — see "Why rubric-based scoring was added" above — the
+two metrics are kept in tension on all three rubric-covered cases so a
+divergence between them stays visible instead of being silently resolved by
+dropping one.
+
+`drafting/drafting_rejection.test.json`'s reference is presumably subject to
+the same staleness risk in principle, but its case is anchored to a specific
+named sender ("the most recent email from Cisco") rather than a snapshot of
+the whole inbox, which has so far kept it stable; its threshold is left at
+`0.8` for that reason. If it starts producing similar false failures against
+live inbox drift, the same fix applies.
+
 ## Observability
 
 `check_drift.py`, at the project root, is **observability, not evaluation**.
@@ -207,8 +307,7 @@ why the committed `run_log.jsonl` contains a historical record it is
   `final_response_match_v2` (via the shared `evals/test_config.json`).
 - `routing/routing_classification.test.json` has no path/trajectory
   coverage at all — see "What the trajectory assertion can and can't see"
-  above for why, and it also has no rubric-based coverage added in this
-  pass.
+  above for why.
 
 ## What it does NOT assert
 

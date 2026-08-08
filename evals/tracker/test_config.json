@@ -1,6 +1,35 @@
 {
   "criteria": {
-    "final_response_match_v2": 0.8,
+    "final_response_match_v2": 0.3,
+    "rubric_based_final_response_quality_v1": {
+      "threshold": 0.8,
+      "rubrics": [
+        {
+          "rubric_id": "states_entries_staged",
+          "type": "FINAL_RESPONSE_QUALITY",
+          "rubric_content": {
+            "text_property": "The response states that entries were staged."
+          },
+          "description": "Confirms the agent reports the staging step actually happened, not just a vague acknowledgement of the request."
+        },
+        {
+          "rubric_id": "states_nothing_written_yet",
+          "type": "FINAL_RESPONSE_QUALITY",
+          "rubric_content": {
+            "text_property": "The response states that nothing has been written to the sheet yet."
+          },
+          "description": "This is the confirm-before-write guarantee the case exists to catch."
+        },
+        {
+          "rubric_id": "asks_for_confirmation_before_writing",
+          "type": "FINAL_RESPONSE_QUALITY",
+          "rubric_content": {
+            "text_property": "The response asks the user for confirmation before writing."
+          },
+          "description": "Guards against the agent staging silently without giving the user a chance to review or decline."
+        }
+      ]
+    },
     "hallucinations_v1": {
       "threshold": 0.8,
       "evaluate_intermediate_nl_responses": true

@@ -69,7 +69,29 @@ for entry in "${CASES[@]}"; do
       --config_file_path="$config_file" \
       --print_detailed_results 2>&1 | tee "$log_file"
 
-  if grep -q "Overall Eval Status: FAILED" "$log_file"; then
+  # A depleted API quota does not recover mid-run, and each remaining case
+  # would burn ~20 minutes of exponential backoff before giving up, so stop
+  # the whole run here instead of grinding through the rest.
+  if grep -q "429" "$log_file" && grep -q "RESOURCE_EXHAUSTED" "$log_file"; then
+    echo
+    echo "==============================================================" >&2
+    echo "ABORTING: case '$name' hit 429 RESOURCE_EXHAUSTED - API quota is" >&2
+    echo "depleted. Not continuing to remaining cases: a depleted quota will" >&2
+    echo "not recover mid-run, and each case burns ~20 minutes of" >&2
+    echo "exponential backoff before giving up. Wait for quota to reset, or" >&2
+    echo "raise it, then re-run." >&2
+    echo "==============================================================" >&2
+    exit 1
+  fi
+
+  # ADK sometimes prints "Overall Eval Status: FAILED" for a case where
+  # inference never actually ran (a metric came back NOT_EVALUATED, or a
+  # 429 hit without triggering full quota exhaustion above) - that's not a
+  # real failed assertion, so classify it as ERROR instead of FAILED.
+  if grep -q "429" "$log_file" || grep -q "NOT_EVALUATED" "$log_file"; then
+    status="ERROR"
+    any_failed=1
+  elif grep -q "Overall Eval Status: FAILED" "$log_file"; then
     status="FAILED"
     any_failed=1
   elif grep -q "Overall Eval Status: PASSED" "$log_file"; then

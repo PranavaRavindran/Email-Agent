@@ -1,5 +1,42 @@
 {
   "criteria": {
-    "final_response_match_v2": 0.8
+    "final_response_match_v2": 0.3,
+    "rubric_based_final_response_quality_v1": {
+      "threshold": 0.8,
+      "rubrics": [
+        {
+          "rubric_id": "groups_into_distinct_priority_categories",
+          "type": "FINAL_RESPONSE_QUALITY",
+          "rubric_content": {
+            "text_property": "The response groups emails into distinct priority categories including at minimum Urgent and Action Needed."
+          },
+          "description": "This is the core behavior the case exists to catch: that classification_agent's involvement actually produced categorized output, not a flat list."
+        },
+        {
+          "rubric_id": "security_alerts_under_urgent",
+          "type": "FINAL_RESPONSE_QUALITY",
+          "rubric_content": {
+            "text_property": "Security alerts and verification codes appear under Urgent, not FYI."
+          },
+          "description": "Guards against time-sensitive security emails being deprioritized into a low-attention bucket."
+        },
+        {
+          "rubric_id": "rejections_and_marketing_not_action_needed",
+          "type": "FINAL_RESPONSE_QUALITY",
+          "rubric_content": {
+            "text_property": "Job rejections, job recommendations and marketing emails are NOT categorised as Action Needed."
+          },
+          "description": "Guards against over-eager classification treating no-action correspondence as requiring a response."
+        },
+        {
+          "rubric_id": "accounts_for_all_emails",
+          "type": "FINAL_RESPONSE_QUALITY",
+          "rubric_content": {
+            "text_property": "The response accounts for all emails, either individually or by stating a count of remaining lower-priority ones."
+          },
+          "description": "Guards against silently dropping emails that don't fall into a highlighted category."
+        }
+      ]
+    }
   }
 }
