@@ -136,6 +136,12 @@ Other invariants enforced in code: sorting happens in `write_to_sheet`, not in
 the agent; company and role are matched on a normalised comparison key so name
 drift between runs doesn't create duplicate rows.
 
+Every `stage_write` call appends a record to `run_log.jsonl` (fetch/search
+counts, staged counts, whether the guard refused). `check_drift.py` reads
+that log and flags real runs where the guard should have refused but didn't
+— observability on production runs, distinct from the evals below, which
+only check scenarios written in advance. Run it with `python check_drift.py`.
+
 ---
 
 ## Testing
@@ -152,13 +158,17 @@ python -m pytest tests/ -v
 
 **`evals/` — ADK evaluation. Slow, live API calls.** Verifies agent behaviour:
 which sub-agents get called, and whether the response makes the right claims.
-Cases live in per-case subdirectories, each with its own criteria config:
+Cases live in per-case subdirectories, each with its own criteria config. Run
+the whole suite with:
 
 ```
-adk eval eval_agent evals/tracker/tracker_staging.test.json --config_file_path=evals/tracker/test_config.json --print_detailed_results
+./run_evals.sh              # all 5 cases
+./run_evals.sh drafting     # just one case, by short name
 ```
 
-See `evals/README.md` for all cases and their configs.
+See `evals/README.md` for all cases, their configs, and the metrics each one
+uses (including LLM-judged rubric and hallucination checks added to catch
+regressions that similarity-based scoring misses).
 
 The split exists because ADK's response scoring cannot check extraction
 correctness. Its default metric is ROUGE word overlap against a reference, which
