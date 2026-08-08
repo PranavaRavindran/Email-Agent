@@ -53,7 +53,8 @@ Metric: final_response_match_v2, Status: PASSED, Score: 1.0, Threshold: 0.8
 """
 
 # adk always exits 0 here, matching the real (buggy-to-rely-on) behavior.
-FAKE_ADK = r"""#!/usr/bin/env bash
+FAKE_ADK = (
+    r"""#!/usr/bin/env bash
 eval_file=""
 for arg in "$@"; do
   case "$arg" in
@@ -74,16 +75,21 @@ if [ -n "${FAKE_ADK_FAIL_CASE:-}" ]; then
   case "$eval_file" in
     *"$FAKE_ADK_FAIL_CASE"*)
       cat <<'BLOCK'
-""" + CAPTURED_FAILED_BLOCK + """BLOCK
+"""
+    + CAPTURED_FAILED_BLOCK
+    + """BLOCK
       exit 0
       ;;
   esac
 fi
 
 cat <<'BLOCK'
-""" + CAPTURED_PASSED_BLOCK + """BLOCK
+"""
+    + CAPTURED_PASSED_BLOCK
+    + """BLOCK
 exit 0
 """
+)
 
 
 def _write_fake_adk(bin_dir):
@@ -123,11 +129,7 @@ def _summary_lines(stdout):
 
 
 def _case_line(summary_lines, case_name):
-    return next(
-        line
-        for line in summary_lines
-        if line.strip().split(" ", 1)[0] == case_name
-    )
+    return next(line for line in summary_lines if line.strip().split(" ", 1)[0] == case_name)
 
 
 class TestRunEvalsPassFailDetection:
@@ -162,7 +164,9 @@ class TestRunEvalsPassFailDetection:
     def test_metric_lines_are_included_in_summary(self, tmp_path):
         result = _run(tmp_path, {"FAKE_ADK_FAIL_CASE": "routing"})
         summary = "\n".join(_summary_lines(result.stdout))
-        assert "Metric: final_response_match_v2, Status: FAILED, Score: 0.0, Threshold: 0.8" in summary
+        assert (
+            "Metric: final_response_match_v2, Status: FAILED, Score: 0.0, Threshold: 0.8" in summary
+        )
 
     def test_all_passing_exits_zero(self, tmp_path):
         result = _run(tmp_path, {})
