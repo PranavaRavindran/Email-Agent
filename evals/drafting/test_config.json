@@ -1,5 +1,34 @@
 {
   "criteria": {
-    "final_response_match_v2": 0.8
+    "final_response_match_v2": 0.8,
+    "rubric_based_final_response_quality_v1": {
+      "threshold": 0.8,
+      "rubrics": [
+        {
+          "rubric_id": "no_continued_interest_in_declined_role",
+          "type": "FINAL_RESPONSE_QUALITY",
+          "rubric_content": {
+            "text_property": "The reply does NOT express continued interest in the specific role that was declined, and does not ask about next steps for that role."
+          },
+          "description": "This is the exact regression the case exists to catch: root_agent previously fabricated an intent of continued interest for a rejection email, producing a reply saying 'I remain very interested in this opportunity'. final_response_match_v2 scored that buggy reply as a 1.0 similarity match against the correct reference, so this rubric is the one that actually catches it."
+        },
+        {
+          "rubric_id": "acknowledges_rejection_outcome",
+          "type": "FINAL_RESPONSE_QUALITY",
+          "rubric_content": {
+            "text_property": "The reply acknowledges the rejection outcome rather than treating the email as neutral or positive correspondence."
+          },
+          "description": "Guards against the reply reading as if the email were a generic status update instead of a decline."
+        },
+        {
+          "rubric_id": "gracious_professional_acknowledgement",
+          "type": "FINAL_RESPONSE_QUALITY",
+          "rubric_content": {
+            "text_property": "The reply is a gracious, professional acknowledgement appropriate to a rejection."
+          },
+          "description": "Checks overall tone independent of the specific continued-interest regression above."
+        }
+      ]
+    }
   }
 }
