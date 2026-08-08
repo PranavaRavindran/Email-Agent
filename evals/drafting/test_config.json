@@ -29,6 +29,27 @@
           "description": "Checks overall tone independent of the specific continued-interest regression above."
         }
       ]
+    },
+    "rubric_based_tool_use_quality_v1": {
+      "threshold": 0.8,
+      "rubrics": [
+        {
+          "rubric_id": "retrieved_full_email_body_before_drafting",
+          "type": "TOOL_USE_QUALITY",
+          "rubric_content": {
+            "text_property": "The agent retrieved the full email body before drafting a reply, rather than drafting from the subject line alone."
+          },
+          "description": "Targets the delegation bug where root_agent asked inbox_agent for the 'most recent email from Cisco' without requesting get_email_detail explicitly and only got back the subject line. tool_trajectory_avg_score cannot check this reliably (drafting_agent's args embed the full email body, which is not reproducible run to run), so this is judged by an LLM instead of exact-matched."
+        },
+        {
+          "rubric_id": "intent_reflects_actual_email_content",
+          "type": "TOOL_USE_QUALITY",
+          "rubric_content": {
+            "text_property": "The intent passed to the drafting agent reflects the email's actual content (a rejection), not an assumption inferred from the subject line."
+          },
+          "description": "Targets the fabricated 'express continued interest' intent that root_agent previously passed to drafting_agent without having read the rejection body."
+        }
+      ]
     }
   }
 }
