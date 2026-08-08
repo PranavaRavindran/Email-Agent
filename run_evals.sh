@@ -32,8 +32,15 @@ ONLY="${1:-}"
 
 names=()
 results=()
+metrics_list=()
+log_files=()
 any_failed=0
 ran_any=0
+
+cleanup() {
+  rm -f "${log_files[@]:-}"
+}
+trap cleanup EXIT
 
 for entry in "${CASES[@]}"; do
   name="${entry%%:*}"
@@ -52,16 +59,29 @@ for entry in "${CASES[@]}"; do
   echo "  config file: $config_file"
   echo "=============================================================="
 
-  if adk eval eval_agent "$eval_file" \
+  log_file="$(mktemp "${TMPDIR:-/tmp}/run_evals.${name}.XXXXXX")"
+  log_files+=("$log_file")
+
+  # `adk eval` exits 0 regardless of pass/fail, so the exit code below is
+  # NOT a valid signal — pass/fail is determined by parsing ADK's own
+  # "Overall Eval Status" verdict line out of the captured output instead.
+  adk eval eval_agent "$eval_file" \
       --config_file_path="$config_file" \
-      --print_detailed_results; then
-    names+=("$name")
-    results+=("PASS")
+      --print_detailed_results 2>&1 | tee "$log_file"
+
+  if grep -q "Overall Eval Status: FAILED" "$log_file"; then
+    status="FAILED"
+    any_failed=1
+  elif grep -q "Overall Eval Status: PASSED" "$log_file"; then
+    status="PASSED"
   else
-    names+=("$name")
-    results+=("FAIL")
+    status="ERROR"
     any_failed=1
   fi
+
+  names+=("$name")
+  results+=("$status")
+  metrics_list+=("$(grep '^Metric: ' "$log_file" || true)")
 done
 
 if [ "$ran_any" -eq 0 ]; then
@@ -76,6 +96,16 @@ echo "Summary"
 echo "=============================================================="
 for i in "${!names[@]}"; do
   printf '  %-16s %s\n' "${names[$i]}" "${results[$i]}"
+  if [ -n "${metrics_list[$i]}" ]; then
+    while IFS= read -r line; do
+      printf '      %s\n' "$line"
+    done <<< "${metrics_list[$i]}"
+  fi
 done
+
+if [ "$any_failed" -ne 0 ]; then
+  echo
+  echo "One or more cases FAILED or ERRORed - see above." >&2
+fi
 
 exit "$any_failed"
