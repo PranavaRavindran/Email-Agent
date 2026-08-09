@@ -460,3 +460,255 @@ was explicitly the failure mode the task asked me not to fake coverage
 for. If option 4 from the Defect-1 recommendations above (a distinguishable
 failure sentinel) is implemented later, *that* would introduce a real,
 testable code path — but it isn't implemented in this pass.
+
+---
+
+# Investigation: hallucinations_v1 0.5 on tracker_staging (2026-08-09, ~16:52 run)
+
+Read-only investigation — no code changes, no eval runs. Answers Q1–Q4 from
+the task with file:line/JSON-path evidence for every claim; speculation is
+labelled explicitly as SPECULATION. Recommendations only — nothing below is
+implemented.
+
+Primary sources read in full:
+- `eval_agent/.adk/eval_history/eval_agent_tracker_staging_1786312368.767647.evalset_result.json`
+  (the run in question — `creation_timestamp` converts to 2026-08-09
+  16:52:48 local time, matching the task's "~16:xx")
+- The four earlier same-day `tracker_staging` runs, for comparison:
+  `..._1786303217.887519...json` (14:20), `..._1786304359.034569...json`
+  (14:39), `..._1786305424.2007182...json` (14:57),
+  `..._1786308029.36231...json` (15:40) — all four scored
+  `hallucinations_v1 = 1.0` on the same eval case
+- `evals/tracker/tracker_staging.test.json`
+- `tools/write_to_sheet.py` (`stage_write`, `_merge_duplicates`, `_resolve_dates`)
+- `tools/get_email_detail.py` (`_BODY_CACHE`, `reset_fetched_ids`)
+- `tools/search_email_ids.py` (the `reset_fetched_ids()` call site)
+
+**Same scope limitation as the 2026-08-08 investigation above applies
+here too:** the eval history JSON only records **root_agent's own
+trajectory**. There are exactly 4 top-level events in this case
+(`eval_metric_result_per_invocation[0].actual_invocation.intermediate_data.invocation_events`,
+lines ~660–1053) — two `tracker_agent` `function_call`/`function_response`
+pairs plus root_agent's own intermediate and final text. `tracker_agent`'s
+own internal steps (its `search_email_ids`, `get_emails_bulk`, and both
+actual `stage_write` calls the task's stdout evidence already established)
+run *inside* those two root-level calls and are not separately logged here.
+
+## Q1 — Per-segment hallucinations_v1 results: how many segments, which flagged, verbatim reasoning?
+
+**Cannot be answered as asked — the per-segment breakdown is not present
+anywhere in this file.** This is itself the first finding.
+
+- The metric's own result is `{"metric_name": "hallucinations_v1", "score":
+  0.5, "eval_status": 2, "details": {"rubric_scores": []}}` — present
+  twice, identically: in `overall_eval_metric_results[1]` (file lines
+  ~70–82) and again in `eval_metric_result_per_invocation[0].eval_metric_results[1]`
+  (lines ~497–509). Both have a **bare empty list** for `rubric_scores`.
+- Contrast with the sibling metric in the *same case*,
+  `rubric_based_final_response_quality_v1`: its `details.rubric_scores`
+  (lines ~8–50) is fully populated — 3 entries, each with a `rubric_id`, a
+  multi-sentence `rationale`, and a `score`. The logging plumbing for
+  per-item judge reasoning clearly exists and works in this file; it's just
+  never populated for `hallucinations_v1`.
+- The criterion block confirms `evaluate_intermediate_nl_responses: true`
+  was actually in effect for this run (line ~75), matching the task's
+  premise. Turning that flag on makes the judge *score* intermediate
+  segments; it does not make this ADK build persist *why* to eval history.
+
+**So there is no verbatim judge reasoning to quote, for any segment.**
+What can be reconstructed instead, from the raw trajectory plus the score
+arithmetic (**SPECULATION on the mapping from segments to the 0.5 value** —
+not read from any judge output):
+
+The trajectory contains exactly two candidate NL segments for
+`evaluate_intermediate_nl_responses` to score:
+1. The one intermediate text, `"The staging step did not run. I will ask
+   the tracker agent to stage the write again."` (line ~797, see Q2).
+2. The final response (`actual_invocation.final_response`, matches line
+   ~1001).
+
+The task's own already-established evidence says the final response is
+grounded (its counts match the second `[stage_write]` stdout line exactly).
+If `hallucinations_v1` weights segments equally, 0.5 over 2 segments with
+one already confirmed grounded is arithmetically consistent with **exactly
+the intermediate segment being the one flagged unsupported**, and no other
+combination fits both the score and the already-confirmed-grounded final
+response. This is an inference from arithmetic and elimination, not a
+transcript of judge output — flagged as SPECULATION accordingly.
+
+## Q2 — Why did stage_write run twice? Who triggered the second run, and what did the intermediate NL response say?
+
+**Directly answered from the JSON — no speculation needed here.**
+
+All 4 top-level events are authored by `root_agent`:
+
+- Event 0: `root_agent` → `tracker_agent`, `{"request": "update my job
+  application tracker with application emails from june and july 2026"}`
+  (user's text, verbatim).
+- Event 1: `tracker_agent`'s response (line ~717): *"I found 37 new
+  applications and no status changes. There were no duplicates in this
+  batch, no existing tracker entries that this run did not find and
+  therefore did not verify, and no invalid entries."* — note this
+  response's counts (37 new, 0 duplicates) match the task's **first**
+  `[stage_write]` stdout line ("0 duplicates in batch") exactly, confirming
+  `stage_write` genuinely ran during this first `tracker_agent` call, even
+  though the response prose never uses the word "staged."
+- Event 2: `root_agent` emits visible text **before** its next call (line
+  ~797): *"The staging step did not run. I will ask the tracker agent to
+  stage the write again."* — then calls `tracker_agent` a second time,
+  `{"request": "stage the write for application emails from june and july
+  2026"}`.
+- Event 3: `tracker_agent`'s second response (line ~921) — the full
+  itemized diff (37 new / 0 status / 1 duplicate, CrossLink Professional
+  Tax Solutions, 2026-05-31) that the final response echoes verbatim.
+
+**The second run was triggered by `root_agent` itself, not by any
+`tracker_agent`-internal retry.** The intermediate NL message between the
+two runs is exactly: *"The staging step did not run. I will ask the
+tracker agent to stage the write again."*
+
+This text is a close paraphrase of a literal bullet in `root_agent`'s own
+system instructions, recorded in this same file at
+`app_details.agent_details.root_agent.instructions` (line ~287):
+
+> "Only tell the user the tracker is up to date if tracker_agent returned
+> an explicit staged diff with has_changes false. If tracker_agent claims
+> the tracker is up to date without reporting staged counts, do not repeat
+> that claim. Tell the user the staging step did not run and ask
+> tracker_agent to stage the write again."
+
+So the re-delegation is root_agent correctly following an instructed
+fallback branch — but the branch's trigger condition ("claims the tracker
+is up to date *without reporting staged counts*") doesn't cleanly describe
+what event 1 actually contains: tracker_agent's first response **did**
+report staged counts (37 new, 0 status changes, 0 duplicates) and never
+claimed the tracker was "up to date." Root_agent treated the response as
+ambiguous/insufficiently explicit anyway. This mismatch is the crux of Q4.
+
+## Q3 — Why did the duplicate count differ (0 then 1) given identical 37-new counts?
+
+**Cache/refetch mechanics are ruled out by code; the likely cause is
+LLM entry-extraction non-determinism across the two separate `tracker_agent`
+invocations — labelled SPECULATION, since the actual `entries` argument
+passed to either `stage_write` call is not present in this JSON.**
+
+Ruling out `_BODY_CACHE` / `reset_fetched_ids`:
+- `reset_fetched_ids()` clears both `_FETCHED_IDS` and `_BODY_CACHE`
+  (`tools/get_email_detail.py:23-26`) and runs unconditionally at the top
+  of every `search_email_ids` call (`tools/search_email_ids.py:45`). If
+  `tracker_agent` re-ran its own search for the second "stage the write..."
+  request (plausible — it is a fresh top-level delegation, not something
+  root_agent tells it retains state from the first call), that reset gives
+  a **clean, empty** cache going into the second pass, not a stale one that
+  could carry over a leftover id from the first pass.
+- The underlying Gmail data is read-only and did not change in the seconds
+  between the two calls, so a second `search_email_ids` should return the
+  same message-id set, and `get_email_detail`/`get_emails_bulk` should
+  return identical body content per id whether served from cache or
+  refetched. Nothing in this code path can synthesize an *extra distinct
+  entry* purely from a cache reset.
+
+What actually decides `duplicates_in_batch`
+(`tools/write_to_sheet.py:702`, `_merge_duplicates` at lines 287-330): it
+groups the `entries` list `stage_write` is called with by normalized
+`(company, role)`, then unions groups whose company keys are
+prefix-related (lines 292-300) — the function's own docstring uses, as its
+illustrative example, a short company form merging with its full form,
+naming **"CrossLink"** merging with **"CrossLink Professional Tax
+Solutions"** (line ~296) — the exact company in this case's flagged
+duplicate. Anything beyond the first entry in a merged group counts as a
+duplicate-in-batch. The `entries` list itself is built by `tracker_agent`'s
+LLM extraction step *before* `stage_write` is ever called, and that
+extraction step is not logged in this JSON (same `AgentTool` opacity noted
+in Q2/the scope note).
+
+Given that: the identical final new-row count (37, both times) shows the
+post-merge deduped set was the same either way — only the *duplicates-in-batch
+accounting* differed. The explanation that best fits (a) the identical
+37-new outcome, (b) the differing duplicate count, and (c) how
+`_merge_duplicates` actually works, is that on the second pass
+`tracker_agent`'s extraction step emitted **two** raw entries for the
+CrossLink Professional Tax Solutions / Software Engineer I application
+(plausibly one from an application-confirmation email and one from the
+2026-05-31 rejection email, under two slightly different company-name
+strings that the prefix-match rule then merges), where on the first pass
+it emitted only one already-consolidated entry for the same underlying
+emails. **This is SPECULATION on the precise mechanism** — I cannot see
+either call's actual `entries` argument — but it is consistent with all
+observed evidence, and the cache/refetch alternative is ruled out by the
+code, not merely unlikely.
+
+## Q4 — Verdict
+
+**Best supported: (a) — a genuine, correctly-flagged unsupported (in fact
+contradicted) intermediate claim — with (c) as the mechanical trigger for
+*why a second run existed to talk about at all*, not as an independent
+artifact. (b) judge-variance-on-borderline-segments is the weakest fit.**
+
+Reasoning:
+- Across the 4 other `tracker_staging` runs earlier the same day, **none
+  re-delegated** — each is a single 2-event exchange (one `tracker_agent`
+  call, one response), scoring `hallucinations_v1 = 1.0` every time. Several
+  of those first-call responses **also** omitted explicit "staged" language
+  (e.g. the 14:20 run's response: *"I found 36 new applications and no
+  status changes. There were no unchanged entries."* — no mention of
+  staging at all), yet root_agent did not invoke its fallback branch in
+  those cases. So root_agent's decision to fire "the staging step did not
+  run" is **non-deterministic** given near-identical first-call phrasing —
+  this run is the 1-of-5 case where it fired. That rules out a fixed
+  pipeline rule forcing two runs; it's a probabilistic root_agent judgment
+  call, per-run.
+- Whether that judgment call, once made, is *true*: the task's own
+  established stdout evidence shows the first `[stage_write]` line already
+  logged "0 duplicates in batch" with the same 37-new count that
+  tracker_agent's first response reported — i.e. staging **did** run on
+  the first call. Root_agent's claim "The staging step did not run" is
+  therefore not merely unsupported by visible evidence — it's
+  **contradicted** by evidence already in the same trajectory. That is
+  exactly the failure mode `hallucinations_v1` exists to catch, which
+  argues for (a) over (b) or (c) as a distinct root cause: the
+  double-staging is *downstream of* this false claim, not a separate
+  artifact that corrupted an otherwise-clean trajectory.
+- (b) can't be fully ruled out for the precise 0.5 arithmetic — no
+  per-segment reasoning is logged (Q1) to confirm which segment was
+  flagged or why — but the 5-run comparison makes pure judge noise a
+  weaker explanation than "this run genuinely contains a false claim the
+  other 4 don't."
+
+**Where a fix would belong, if pursued (nothing implemented):**
+- **Instructions (`agent.py`, root_agent):** the fallback bullet ("If
+  tracker_agent claims the tracker is up to date without reporting staged
+  counts...") is firing on responses that **do** report staged counts (37
+  new, 0 status changes, 0 duplicates) — its trigger condition is
+  under-specified relative to what tracker_agent's responses look like in
+  practice. Tightening it (e.g., treat "found N new applications" as
+  evidence staging occurred, regardless of whether the word "staged"
+  appears) would remove the root cause without any pipeline change. This
+  matches the pattern already used for the confirmed root_agent-side
+  defect in the 2026-08-08 investigation above (instruction edit preferred
+  over restructuring where the defect is root_agent's own prose).
+- **Pipeline:** no evidence supports a pipeline-level cause for the *second
+  run existing* — there's no code path that forces two `stage_write` calls;
+  it is entirely root_agent's own probabilistic interpretation of prose. A
+  pipeline change (e.g., `tracker_agent` always returning a structured
+  `has_changes`/`staged` flag rather than leaving root_agent to infer it
+  from free text) would remove the ambiguity at the source rather than
+  asking root_agent to parse prose more carefully, and is arguably more
+  robust — but it's a larger change than an instruction edit and isn't
+  required to fix this specific defect.
+- **Eval config (`evaluate_intermediate_nl_responses` back to `False`):**
+  would hide this finding, not fix it. Flagging explicitly per the task's
+  ask: this flag is exactly what caught a real inconsistency between what
+  root_agent said and what its own tool evidence already showed (Q2);
+  turning it off would make `hallucinations_v1` check only the final
+  response, silently losing coverage on this entire class of intermediate
+  false claim. Not recommended as the primary fix — at most a stopgap
+  while an instruction fix is pending, with that coverage loss stated
+  up front rather than discovered later.
+
+**Separately worth flagging:** the empty `rubric_scores` for
+`hallucinations_v1` (Q1) is a standalone observability gap, independent of
+this case's outcome. Any future sub-threshold `hallucinations_v1` score
+will require the same reconstruct-from-raw-trajectory-and-arithmetic
+approach used here rather than reading judge reasoning directly, unless
+that logging gap is closed.
