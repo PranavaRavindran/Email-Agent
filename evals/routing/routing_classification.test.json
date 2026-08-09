@@ -19,7 +19,7 @@
           "final_response": {
             "parts": [
               {
-                "text": "Here's a summary of your emails that need your attention, grouped by priority:\n\n**Urgent:** A security alert about a new sign-in to your account needs immediate attention, along with any verification codes that have come in.\n\n**Action Needed:** A message that's waiting on a reply from you.\n\nThe rest are lower-priority — mostly application status updates, recruiter outreach, and other notifications — and don't need immediate action right now. Let me know if you'd like me to go through them individually."
+                "text": "Here's a summary of your emails that need your attention, grouped by priority:\n\n**Action Needed:** A message that's waiting on a reply from you.\n\nEverything else is lower priority — a mix of application status updates, rejections, job recommendations, a security notification, and other routine updates — and doesn't need immediate action right now. Let me know if you'd like me to go through them individually."
               }
             ],
             "role": "model"

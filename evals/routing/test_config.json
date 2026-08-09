@@ -8,9 +8,9 @@
           "rubric_id": "groups_into_distinct_priority_categories",
           "type": "FINAL_RESPONSE_QUALITY",
           "rubric_content": {
-            "text_property": "The response groups emails into distinct priority categories including at minimum Urgent and Action Needed."
+            "text_property": "The response groups emails into distinct, explicitly labeled priority categories (e.g. Urgent, Action Needed, FYI) rather than presenting a flat, uncategorised list. A category may be omitted entirely if no email in this inbox belongs to it."
           },
-          "description": "This is the core behavior the case exists to catch: that classification_agent's involvement actually produced categorized output, not a flat list."
+          "description": "This is the core behavior the case exists to catch: that classification_agent's involvement actually produced categorized output, not a flat list. This does NOT require any specific category (including Urgent) to be populated: under the adopted taxonomy, Urgent means a job-search deadline (see urgent_is_job_search_deadline_shaped), and an inbox with no such deadline should correctly omit it. Do not reintroduce a requirement that Urgent always be present."
         },
         {
           "rubric_id": "verification_codes_and_security_alerts_not_urgent",

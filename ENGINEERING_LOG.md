@@ -479,6 +479,52 @@ unreliable.
 
 ---
 
+### 24. Two eval artifacts the taxonomy fix forgot
+
+Live run 2026-08-09, after #23 landed. `rubric_based_final_response_quality_v1`
+passed (`0.8333`, all taxonomy rubrics scoring `1.0`), but two failures
+remained — both false, and both caused by the same root problem: #23 changed
+what "urgent" means but didn't touch every artifact that encodes that
+meaning.
+
+**Failure 1.** `groups_into_distinct_priority_categories` scored `0.0`. Judge:
+*"While 'Action Needed' is present, the 'Urgent' category is missing."* This
+rubric predates #23 and still required Urgent to always be present — a
+generic-time-sensitivity-era assumption that made sense when almost anything
+could be Urgent, but not under the adopted taxonomy, where Urgent means a
+job-search deadline and a run with no such deadline should correctly omit the
+category. It directly contradicted its own sibling rubric,
+`urgent_is_job_search_deadline_shaped`, which already said "if any." #23's
+commit rewrote the routing rubrics for the *content* of Urgent (security
+alerts don't belong there) but missed this rubric's separate, older
+assumption about Urgent's *presence*.
+
+**Failure 2.** `final_response_match_v2` scored `0.0` because the reference
+response in `routing/routing_classification.test.json` still read *"A
+security alert about a new sign-in to your account needs immediate
+attention, along with any verification codes that have come in"* under
+**Urgent** — the exact pre-#23 taxonomy, word for word. A correct response
+under the new taxonomy can never match a reference written for the old one;
+the fix isn't a moving target, the reference was just never updated.
+
+**The pattern.** #23's commit updated `tools/classify_email.py`'s prompt,
+`classification_agent`'s instructions, `agent_spec.yaml`, and the routing
+rubrics — every artifact that was *top of mind* for "what urgent means" — but
+missed two more that encode the same taxonomy less obviously: a rubric about
+category *presence* (as opposed to content) and a reference response that
+embeds a worked example. Same class of bug as "Stale references aren't just a
+trajectory problem" in `evals/README.md`: a specification change has to
+propagate to every artifact that encodes it, and a fixed reference response
+or an old rubric is such an artifact even though neither looks like
+"documentation of the taxonomy" on its face. Fixed by rewriting the rubric to
+require categorized structure without requiring any specific category
+populated, and rewriting the reference response to be consistent with the
+adopted taxonomy while staying shape-based. `evals/README.md` now lists all
+five artifacts a taxonomy change touches, specifically so the next change
+doesn't repeat this.
+
+---
+
 ## Additional questions worth answering cold
 
 7. Why is "observed, not self-reported" the design rule for guards — and which
@@ -489,3 +535,5 @@ unreliable.
    assertion for the confirmation guarantee?
 10. Why did the preview intent start staging, and what does it imply about how
     conflicting instructions resolve?
+11. Why can a rubric and a reference response both encode the same taxonomy
+    and still drift out of sync with each other?

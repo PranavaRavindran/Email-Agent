@@ -77,7 +77,7 @@ without requiring a re-read of the full log to catch it.
 | --- | --- | --- |
 | `tracker/tracker_staging.test.json` | `tracker_stages_without_committing` | A tracker update request calls `tracker_agent` once, stages new entries, and never commits them — the confirm-before-write guarantee. Judged with `tracker/test_config.json`: `rubric_based_final_response_quality_v1` (states entries were staged, states nothing written yet, asks for confirmation) is the primary signal; `final_response_match_v2` runs at the standard `0.8` threshold against a shape-based reference — see "Stale references aren't just a trajectory problem" below. No trajectory score; see note below. |
 | `inbox_listing.test.json` | `inbox_lists_recent_emails` | A plain "show me my recent emails" request is answered by a single `inbox_agent` call — no unnecessary routing through classification. |
-| `routing/routing_classification.test.json` | `attention_request_routes_through_classification` | A "what needs my attention" request produces a response with emails grouped into priority categories (Urgent, Action Needed, FYI) — output only `classification_agent`'s involvement can produce, since `inbox_agent` alone would return a flat, uncategorized list. Judged with `routing/test_config.json`: `rubric_based_final_response_quality_v1` (grouping into Urgent/Action Needed, security alerts under Urgent, rejections/marketing not Action Needed, all emails accounted for) is the primary signal; `final_response_match_v2` runs at the standard `0.8` threshold against a shape-based reference — see "Stale references aren't just a trajectory problem" below. No trajectory score; see note below. |
+| `routing/routing_classification.test.json` | `attention_request_routes_through_classification` | A "what needs my attention" request produces a response with emails grouped into priority categories (Urgent, Action Needed, FYI) — output only `classification_agent`'s involvement can produce, since `inbox_agent` alone would return a flat, uncategorized list. Judged with `routing/test_config.json`: `rubric_based_final_response_quality_v1` (categorized structure without requiring every category populated, Urgent means a job-search deadline, security alerts/verification codes are NOT Urgent, rejections/marketing not Action Needed, like emails categorised consistently, all emails accounted for) is the primary signal; `final_response_match_v2` runs at the standard `0.8` threshold against a shape-based reference — see "Stale references aren't just a trajectory problem" below. No trajectory score; see note below. |
 | `drafting/drafting_rejection.test.json` | `rejection_reply_does_not_express_continued_interest` | A reply drafted to a rejection email is a gracious acknowledgement that does NOT express continued interest in the declined role or ask about next steps for it. Guards against the drafting agent judging outcome from the subject line instead of the body. This is the most valuable case in the set. Judged with `drafting/test_config.json`: `final_response_match_v2`, `rubric_based_final_response_quality_v1`, and `rubric_based_tool_use_quality_v1` — no trajectory score; see note below. |
 | `tracker_preview.test.json` | `preview_does_not_stage` | A preview request ("show me what you'd add, but don't write anything") calls `tracker_agent` once and the response explicitly states nothing was staged or written. |
 
@@ -281,9 +281,12 @@ both cases has been rewritten to describe the *shape* of a correct answer —
 what structure it must have — rather than its *content* — which specific
 emails it names. `routing/routing_classification.test.json`'s reference now
 states it's a summary of emails needing attention, groups them into
-priority categories (Urgent, Action Needed), places security alerts and
-verification codes under Urgent, and accounts for the remaining
-lower-priority emails without naming any of them individually.
+priority categories, and accounts for the remaining lower-priority emails
+without naming any of them individually. It does not name an Urgent
+category, since the recorded inbox snapshot has no job-search deadline under
+the adopted taxonomy (see "Eval artifacts encode the urgency taxonomy"
+below) — a reference that hardcoded an Urgent example would itself go stale
+the moment the taxonomy changed, which is exactly what happened once before.
 `tracker/tracker_staging.test.json`'s reference states that new entries
 were found and staged, that nothing has been written to the sheet yet, and
 asks whether to write them — again with no specific company, role, date, or
@@ -316,6 +319,36 @@ named sender ("the most recent email from Cisco") rather than a snapshot of
 the whole inbox, which has so far kept it stable; its threshold is left at
 `0.8` for that reason. If it starts producing similar false failures against
 live inbox drift, the same shape-based rewrite applies.
+
+## Eval artifacts encode the urgency taxonomy
+
+"Urgent" has a specific, non-obvious meaning in this project: a job-search
+matter requiring action (interview scheduling, an assessment or take-home
+with a due date, an application requiring information by a deadline) — not
+generic time-sensitivity. That definition is encoded in **five** places, and
+all five have to change together whenever the taxonomy changes:
+
+1. `tools/classify_email.py`'s prompt (the governing principle, criteria, and
+   examples the classification model actually sees).
+2. `agents/classification_agent.py`'s instructions.
+3. `agent_spec.yaml`'s category definitions.
+4. The routing rubrics in `evals/routing/test_config.json`.
+5. The reference response in `evals/routing/routing_classification.test.json`.
+
+The commit that adopted this taxonomy (see `ENGINEERING_LOG.md` #23) updated
+1–4 but missed 5, and also missed a second rubric in #4 that encoded a
+different, older assumption ("Urgent must always be present") than the one
+being fixed ("Urgent's content must be job-search deadlines, not generic
+urgency"). The 2026-08-09 live run caught both misses as false failures:
+`groups_into_distinct_priority_categories` scored `0.0` for correctly
+omitting Urgent from a run with no job-search deadline, and
+`final_response_match_v2` scored `0.0` because the reference response still
+named a security alert and verification codes under Urgent — the exact
+pre-decision taxonomy. See `ENGINEERING_LOG.md` #24 for the full account.
+Neither the agent nor the rubric-content check was wrong; two artifacts that
+encode the same specification had simply gone out of sync with each other.
+When the taxonomy changes again, update all five, not just the ones that are
+top of mind.
 
 ## Observability
 
