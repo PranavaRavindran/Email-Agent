@@ -64,6 +64,27 @@ Retrying request after 429 RESOURCE_EXHAUSTED, attempt 2...
 google.genai.errors.ClientError: 429 RESOURCE_EXHAUSTED
 """
 
+# Modeled on the 2026-08-09 live run: routing passed, but its captured
+# log contained a Python logging line whose millisecond timestamp ends in
+# "429" ("2026-08-09 14:47:33,429 - INFO - google_llm.py:216 - ..."), which
+# a naive substring match on "429" misclassified as ERROR despite a real
+# "Overall Eval Status: PASSED" verdict.
+CAPTURED_PASSED_WITH_429_TIMESTAMP_BLOCK = """\
+2026-08-09 14:47:33,429 - INFO - google_llm.py:216 - Sending request to model.
+*********************************************************************
+Eval Run Summary
+routing_classification:
+  Tests passed: 1
+  Tests failed: 0
+********************************************************************
+Eval Set Id: routing_classification
+Eval Id: attention_request_routes_through_classification
+Overall Eval Status: PASSED
+---------------------------------------------------------------------
+Metric: final_response_match_v2, Status: PASSED, Score: 1.0, Threshold: 0.8
+---------------------------------------------------------------------
+"""
+
 # Also modeled on the 2026-08-08 run: ADK printed "Overall Eval Status:
 # FAILED" for tracker and tracker_preview, but inference never actually ran
 # for the metric - it came back NOT_EVALUATED, not a real failed assertion.
@@ -107,6 +128,18 @@ if [ -n "${FAKE_ADK_429_CASE:-}" ]; then
       cat <<'BLOCK'
 """
     + CAPTURED_429_BLOCK
+    + """BLOCK
+      exit 0
+      ;;
+  esac
+fi
+
+if [ -n "${FAKE_ADK_429_TIMESTAMP_CASE:-}" ]; then
+  case "$eval_file" in
+    *"$FAKE_ADK_429_TIMESTAMP_CASE"*)
+      cat <<'BLOCK'
+"""
+    + CAPTURED_PASSED_WITH_429_TIMESTAMP_BLOCK
     + """BLOCK
       exit 0
       ;;
@@ -250,6 +283,18 @@ class TestRunEvalsPassFailDetection:
 
         preview_line = _case_line(summary, "tracker_preview")
         assert "PASSED" in preview_line
+
+    def test_millisecond_timestamp_ending_in_429_is_not_a_false_positive(self, tmp_path):
+        # A log line like "2026-08-09 14:47:33,429 - INFO - ..." contains
+        # "429" only as part of a millisecond timestamp. A real
+        # "Overall Eval Status: PASSED" verdict must still classify as
+        # PASSED, not ERROR.
+        result = _run(tmp_path, {"FAKE_ADK_429_TIMESTAMP_CASE": "routing"})
+        summary = _summary_lines(result.stdout)
+
+        routing_line = _case_line(summary, "routing")
+        assert "PASSED" in routing_line
+        assert "ERROR" not in routing_line
 
 
 class TestRunEvalsQuotaExhaustion:

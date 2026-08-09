@@ -72,7 +72,13 @@ for entry in "${CASES[@]}"; do
   # A depleted API quota does not recover mid-run, and each remaining case
   # would burn ~20 minutes of exponential backoff before giving up, so stop
   # the whole run here instead of grinding through the rest.
-  if grep -q "429" "$log_file" && grep -q "RESOURCE_EXHAUSTED" "$log_file"; then
+  #
+  # RESOURCE_EXHAUSTED alone is the signal: it's a distinctive Gemini API
+  # error token that won't appear in ordinary log output. A plain "429"
+  # check was dropped here because logging lines like
+  # "2026-08-09 14:47:33,429 - INFO - ..." contain "429" as a millisecond
+  # timestamp, not an HTTP status.
+  if grep -q "RESOURCE_EXHAUSTED" "$log_file"; then
     echo
     echo "==============================================================" >&2
     echo "ABORTING: case '$name' hit 429 RESOURCE_EXHAUSTED - API quota is" >&2
@@ -88,7 +94,14 @@ for entry in "${CASES[@]}"; do
   # inference never actually ran (a metric came back NOT_EVALUATED, or a
   # 429 hit without triggering full quota exhaustion above) - that's not a
   # real failed assertion, so classify it as ERROR instead of FAILED.
-  if grep -q "429" "$log_file" || grep -q "NOT_EVALUATED" "$log_file"; then
+  #
+  # The 429 check is deliberately not a plain substring match: log lines
+  # like "2026-08-09 14:47:33,429 - INFO - ..." contain "429" as a
+  # millisecond timestamp, which would otherwise false-positive every run.
+  # Requiring "429" not be preceded by a comma or digit restricts the match
+  # to a standalone HTTP-status token (e.g. "429 RESOURCE_EXHAUSTED",
+  # "'code': 429,") instead of a timestamp fragment.
+  if grep -Eq '(^|[^0-9,])429([^0-9]|$)' "$log_file" || grep -q "NOT_EVALUATED" "$log_file"; then
     status="ERROR"
     any_failed=1
   elif grep -q "Overall Eval Status: FAILED" "$log_file"; then
