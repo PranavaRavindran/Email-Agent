@@ -620,6 +620,70 @@ implying the relationship between two requirements and state it.
 
 ---
 
+### 27. A guard that asserted tool state it could not observe
+
+Live run 2026-08-09, ~16:52, tracker staging. `hallucinations_v1` scored
+`0.5` — the only failure among five same-day runs of the identical case,
+the other four scoring `1.0` — even though `rubric_based_final_response_quality_v1`
+scored `1.0` on all three rubrics and the final response was fully
+grounded: it matched, count for count, a `stage_write` call that had
+actually happened.
+
+**What happened.** `tracker_agent`'s first response reported real staged
+counts — *"I found 37 new applications and no status changes... no
+duplicates in this batch... no invalid entries"* — but never used the word
+"staged." `root_agent`'s fallback rule from #11 ("if tracker_agent claims
+up to date without reporting staged counts, ask it to stage again") fired
+anyway, on a response that in fact *did* report staged counts, just
+without that one word. `root_agent` emitted a visible intermediate
+message asserting, as fact, *"The staging step did not run. I will ask
+the tracker agent to stage the write again"* — tool state it had no way
+to observe, and one the counts already in its own context contradicted.
+It then re-ran the entire staging pipeline a second time, and the two
+runs' `duplicates_in_batch` counts disagreed (0 vs. 1 — the same
+CrossLink application pair merged differently across two independent
+extraction passes), papered over because the final response simply
+reported the second run's numbers.
+
+**Why #11's fix wasn't enough.** #11 fixed root_agent trusting a bare "up
+to date" claim as fact. It didn't specify what counts as *evidence
+staging had happened* — so the rule generalized to "no literal mention of
+'staged'" instead of "no counts at all," and fired on a response that had
+counts. Same failure shape as #7's "underspecified rule" and #19's
+"absolute language... resolved the wrong way": a rule scoped around one
+keyword instead of the actual signal it stood in for.
+
+**Why this was caught, and by what.** `final_response_match_v2` isn't run
+on this case (#25) and `rubric_based_final_response_quality_v1` only
+grades the final answer, which was correct. Only `hallucinations_v1`, with
+`evaluate_intermediate_nl_responses=True`, checks intermediate NL text
+against the trajectory's own tool evidence — exactly the layer where the
+defect lived: not in the answer, in the narration on the way to it. Full
+trace in `INVESTIGATION.md` ("hallucinations_v1 0.5 on tracker_staging").
+
+**Fix.** `agent.py`'s fallback bullet now requires *zero staged counts of
+any kind* (not the absence of one word) before treating a response as
+evidence staging didn't run — a response reporting any counts, even all
+zero, is a completed run and must never be re-staged. When a retry is
+genuinely warranted, root_agent must narrate what it observed ("the
+response did not include staged counts") rather than assert inferred tool
+state ("staging did not run") as fact. `agent_spec.yaml`'s
+`tracker_confirmation_flow` updated to match. Regression tests in
+`test_agent_instructions.py` assert both the narrowed trigger and the
+observation-language requirement, checked against the pre-fix commit
+(tagged `pre-restage-fix`).
+
+**The general rule.** "Observed, not self-reported" (#16, #17) applies to
+root_agent's own narration about a sub-agent's tool calls, not only to
+code-level guards over an agent's self-reported parameters. An instruction
+that lets root_agent assert what a tool *didn't* do, rather than describe
+what its response *did* contain, is asking it to hallucinate by design —
+and `evaluate_intermediate_nl_responses` is the one dial in this eval
+suite built specifically to catch that class of narration-vs-evidence
+mismatch mid-trajectory, not only in the final answer.
+
+---
+
 ## Additional questions worth answering cold
 
 7. Why is "observed, not self-reported" the design rule for guards — and which

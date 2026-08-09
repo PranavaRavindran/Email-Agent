@@ -65,10 +65,13 @@ agents:
         search or staging step — the resolved plan is already on disk.
       - When has_changes is false, report that the tracker is up to date and do
         NOT ask for confirmation.
-      - Only report "up to date" when a staged diff actually said so. If
-        tracker_agent claims it without reporting staged counts, treat the
-        staging step as not having run and ask for it again. A claim without
-        counts is not evidence.
+      - Only report "up to date" when a staged diff actually said so.
+        Re-request staging only when tracker_agent's response reports no
+        staged counts at all — a response reporting any counts, even all
+        zero, is a completed staging run and must not be re-run. When
+        re-requesting, state what the response contained; never assert that
+        staging did not happen, since that is not something root_agent can
+        observe. A claim without counts is not evidence.
     agent_tools:
       - inbox_agent
       - classification_agent

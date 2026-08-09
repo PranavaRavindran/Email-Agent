@@ -148,6 +148,56 @@ class TestNoReplyCaveatIsAdditive:
         assert "Would you like to send this?" in block
 
 
+TRACKER_RESTAGE_BULLET_MARKER = "Only tell the user the tracker is up to date"
+
+
+def _tracker_restage_bullet(instruction: str) -> str:
+    """Extracts the re-stage fallback bullet, the instruction segment
+    governing when root_agent may treat a tracker_agent response as
+    evidence that staging didn't happen and ask it to stage again."""
+    start = instruction.index(TRACKER_RESTAGE_BULLET_MARKER)
+    end = instruction.index("\n- ", start + len(TRACKER_RESTAGE_BULLET_MARKER))
+    return instruction[start:end]
+
+
+class TestTrackerRestageTrigger:
+    # Live eval evidence (2026-08-09 16:52 run, tracker_staging), documented
+    # in INVESTIGATION.md ("hallucinations_v1 0.5 on tracker_staging").
+    # tracker_agent's first response reported real staged counts (37 new
+    # applications, 0 status changes, 0 duplicates) without using the literal
+    # word "staged". The old fallback bullet keyed off that word, not off
+    # whether counts were present, and fired anyway — root_agent asserted as
+    # fact "The staging step did not run", which the counts already in its
+    # own context contradicted, then re-ran the full staging pipeline.
+    # hallucinations_v1 (evaluate_intermediate_nl_responses=True) scored 0.5
+    # for the false intermediate claim; the eventual final response was
+    # otherwise fully grounded.
+
+    def test_bullet_exists(self):
+        assert TRACKER_RESTAGE_BULLET_MARKER in root_agent.instruction
+
+    def test_retry_trigger_requires_zero_counts_not_a_missing_keyword(self):
+        bullet = _tracker_restage_bullet(root_agent.instruction)
+        assert "no staged counts" in bullet.lower()
+
+    def test_forbids_restaging_when_any_counts_are_present(self):
+        bullet = _tracker_restage_bullet(root_agent.instruction)
+        lowered = bullet.lower()
+        assert "even when every count is zero" in lowered
+        assert "must never be re-run" in lowered
+
+    def test_retry_narration_states_observation_not_inferred_fact(self):
+        bullet = _tracker_restage_bullet(root_agent.instruction)
+        assert "did not include staged counts" in bullet.lower()
+
+    def test_never_asserts_staging_did_not_happen(self):
+        bullet = _tracker_restage_bullet(root_agent.instruction)
+        lowered = bullet.lower()
+        assert "never assert" in lowered
+        # The exact false claim the live run produced must not reappear.
+        assert "the staging step did not run" not in lowered
+
+
 class TestDraftingAgentNeverDeclines:
     # Same live run: the trajectory attributes the substitute "post-only"
     # statement to drafting_agent itself, not just to root_agent's
