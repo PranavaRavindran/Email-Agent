@@ -15,6 +15,7 @@ problem is caught here instead of only in a live eval run.
 """
 
 from agent import root_agent
+from agents.drafting_agent import drafting_agent
 
 PREVIEW_BULLET_MARKER = "asks to preview, show, or see what would be added WITHOUT"
 
@@ -95,3 +96,73 @@ class TestInboxListingVerbatimForwarding:
         bullet = _inbox_listing_bullet(root_agent.instruction)
         assert "get_email_detail" in bullet
         assert "drafting a reply" in bullet
+
+
+DRAFT_PRESENTATION_MARKER = "Present the result to the user in exactly this order"
+
+
+def _draft_presentation_block(instruction: str) -> str:
+    """Extracts the draft-presentation instruction (steps a-d plus the
+    trailing 'never summarize' sentence), the segment responsible for what
+    root_agent shows the user after drafting_agent returns a draft."""
+    start = instruction.index(DRAFT_PRESENTATION_MARKER)
+    end = instruction.index("\n\n", start)
+    return instruction[start:end]
+
+
+class TestNoReplyCaveatIsAdditive:
+    # Live eval evidence (2026-08-09 15:33 run): for a Cisco rejection sent
+    # from a no-reply address, the agent's entire final response was the
+    # "Replying to" line followed by "This email is a post-only address, so
+    # a reply is not possible. A reply to this address may not be received."
+    # No draft was ever shown. The judge scored acknowledges_rejection and
+    # gracious_professional at 0.0 because there was no acknowledgement to
+    # judge — the no-reply caveat had been produced instead of the draft,
+    # not alongside it, even though notes_no_reply_address and both
+    # tool-use rubrics scored 1.0. The old wording (step c standalone, with
+    # no statement that the draft in step b is mandatory regardless of
+    # reply-ability) left room for that substitution. These tests assert
+    # the instruction now says so explicitly, so a future edit that drops
+    # the "additive" language is caught here instead of only in a live eval.
+
+    def test_bullet_exists(self):
+        assert DRAFT_PRESENTATION_MARKER in root_agent.instruction
+
+    def test_no_reply_note_is_explicitly_additive(self):
+        block = _draft_presentation_block(root_agent.instruction)
+        assert "ADDITIVE" in block
+
+    def test_no_reply_status_is_never_a_reason_to_skip_the_draft(self):
+        block = _draft_presentation_block(root_agent.instruction)
+        lowered = block.lower()
+        assert "never a reason to skip" in lowered or "never omit step (b)" in lowered
+
+    def test_draft_step_still_present(self):
+        # Pre-existing requirement this fix must not remove.
+        block = _draft_presentation_block(root_agent.instruction)
+        assert "The complete draft text exactly as drafting_agent returned it" in block
+
+    def test_send_question_still_present(self):
+        # Pre-existing requirement this fix must not remove.
+        block = _draft_presentation_block(root_agent.instruction)
+        assert "Would you like to send this?" in block
+
+
+class TestDraftingAgentNeverDeclines:
+    # Same live run: the trajectory attributes the substitute "post-only"
+    # statement to drafting_agent itself, not just to root_agent's
+    # presentation step. drafting_agent's old instruction for application
+    # confirmations ("keep the reply brief or note that no reply is
+    # typically needed") could be read as license to return a note instead
+    # of a drafted reply. These tests assert drafting_agent's instruction
+    # unconditionally requires producing draft text.
+
+    def test_never_declines_based_on_reply_ability(self):
+        assert "not your concern" in drafting_agent.instruction
+        assert "never decline to draft" in drafting_agent.instruction.lower()
+
+    def test_confirmation_reply_is_still_an_actual_draft(self):
+        # Pre-existing requirement this fix must not remove: confirmation
+        # replies are brief, but brief still means drafted text.
+        assert "brief" in drafting_agent.instruction.lower()
+        assert "never a note that no reply is needed" in drafting_agent.instruction.lower()

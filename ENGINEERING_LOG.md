@@ -568,6 +568,56 @@ scoring against it. See "Shape-based references have a limit:
 data-dependent volume" in `evals/README.md` for the three-data-point
 argument this entry summarizes.
 
+### 26. An additive instruction that didn't say it was additive
+
+Live run 2026-08-09 15:33, drafting case, immediately after adding the
+no-reply caveat from #13's follow-on work. Asked to draft a reply to the
+Cisco rejection — sent from a post-only address — the agent's entire final
+response was the "Replying to" line followed by *"This email is a post-only
+address, so a reply is not possible. A reply to this address may not be
+received."* No draft appeared anywhere. `notes_no_reply_address` and both
+tool-use rubrics scored `1.0` — the body was fetched, the rejection intent
+was correctly determined and passed to `drafting_agent`. `acknowledges_rejection`
+and `gracious_professional` both scored `0.0`, because there was no
+acknowledgement in the response to judge; the judge's reasoning for the
+former noted the response "*only* states the email is unreplyable."
+
+**Root cause.** The no-reply caveat had been added as step (c) in
+`root_agent`'s draft-presentation format — a new bullet, syntactically a
+peer of "show the draft" and "ask to send" — with nothing in its wording
+saying it was meant to run *alongside* those steps rather than *instead of*
+them. Given "the address can't receive a reply" as a true fact, the model's
+own inference — a draft is pointless if it can't be sent — was reasonable
+enough that it filled the gap the instruction left open. Nothing in the
+instruction contradicted that inference, so it wasn't a leap. The evidence
+pointed at both layers: `drafting_agent`'s own instruction had the same
+shape of gap for confirmation emails ("keep the reply brief **or** note
+that no reply is typically needed" — an "or" that reads as permission to
+substitute), so the fix had to close it in both agents, not just in
+`root_agent`'s presentation step.
+
+**Fix.** In both instructions, replaced the implicit peer-bullet phrasing
+with an explicit additive/unconditional statement: `root_agent`'s step (c)
+now says the note is "ADDITIVE ONLY" and lists that the draft is "always
+produced and presented... regardless of whether the source address accepts
+replies"; `drafting_agent`'s instruction now says outright that it "always
+produces the requested draft text" and that reply-ability "is not your
+concern." `agent_spec.yaml` updated to match on both sides. Regression
+tests in `test_agent_instructions.py` assert the additive language is
+present and, checked against the pre-fix commit (tagged
+`pre-noreply-regression`), fail without it.
+
+**The general rule.** A new requirement that must coexist with an existing
+one — rather than replace it — has to say so explicitly. "Also do X" reads
+differently to a model than a same-level bullet that happens to be true at
+the same time as the others; the model has no way to know two instructions
+are meant to compose rather than compete unless the wording says which.
+Same failure shape as #14 (a fix for one thing broke another, adjacent
+thing) and #22/#25 (an instruction correct in isolation failed once a
+second true-but-independent condition — here, no-reply status — entered
+the picture). The fix in every one of these cases was the same move: stop
+implying the relationship between two requirements and state it.
+
 ---
 
 ## Additional questions worth answering cold

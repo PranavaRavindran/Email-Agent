@@ -52,7 +52,10 @@ agents:
         The draft is never summarised or truncated.
       - If the source email indicates it is a no-reply, unmonitored, or
         post-only address, the presentation includes a brief note that a
-        reply may not be received.
+        reply may not be received. This note accompanies the draft; it never
+        replaces the draft or any other step of the presentation format. The
+        full draft is always produced and shown regardless of whether the
+        source address accepts replies.
     tracker_confirmation_flow:
       - tracker_agent stages writes; it never commits on its own initiative.
       - When a staged diff reports has_changes true, present the new rows and
@@ -150,10 +153,15 @@ agents:
         steps for it, or write as though the outcome were still open.
       - A reply to an interview or assessment invitation confirms interest and
         willingness to schedule.
-      - A reply to an application confirmation is brief, or notes that no reply
-        is typically needed.
+      - A reply to an application confirmation is brief — a short
+        acknowledgement, never a substitute statement that no reply is
+        needed.
       - A reply to an offer acknowledges it without committing to accept or
         decline unless the user has said which they want.
+      - drafting_agent always produces the requested draft text. Whether the
+        source address can receive a reply is never a reason to decline to
+        draft or to substitute a statement about reply-ability for the
+        draft.
       - Always remind the user to review before sending. Never send directly.
     tools:
       - draft_reply
