@@ -380,6 +380,40 @@ never-return-empty rule. Output format also fixed: one item per line, FYI
 reported as a count only — the user asked what needs attention, and FYI is by
 definition what does not.
 
+### 22. Lowering a binary metric's threshold does nothing
+
+On the 2026-08-08 live run, `routing/routing_classification.test.json` and
+`tracker/tracker_staging.test.json` both scored `0.0` on
+`final_response_match_v2` while `rubric_based_final_response_quality_v1`
+scored `1.0` on every rubric for the same response, the judge explicitly
+confirming correct categorization. The agent was right; the reference was
+wrong — each `.test.json` recorded a reference response naming specific
+emails from an inbox snapshot weeks old, so a correct response about
+*today's* inbox shared almost no lexical overlap with it.
+
+**First fix, and why it did nothing.** The threshold was lowered to `0.3`,
+on the theory that this was a continuous similarity score and a weak partial
+match would still clear a low bar. `final_response_match_v2` is not
+continuous — it's a **binary** metric: the judge outputs "valid" or
+"invalid" per invocation (`google/adk/evaluation/final_response_match_v2.py:133-137`),
+so with one invocation per case the score is always exactly `0.0` or `1.0`.
+A stale reference produces `0.0`, and `0.0 >= 0.3` is exactly as false as
+`0.0 >= 0.8`. The threshold change couldn't have fixed anything it was
+tested against, because it was never exercised against the actual failure
+mode.
+
+**The real fix.** Rewrote both references to describe the *shape* of a
+correct answer (priority categories, security alerts under Urgent, staged-
+not-written, asks to confirm) instead of *content* tied to one inbox
+snapshot — then restored the threshold to `0.8`, since that's the correct
+value for a binary metric: it means "the judge must call this valid."
+Rubrics (see `evals/README.md`) already carried the substantive assertions,
+so tightening the reference back up cost nothing.
+
+**Lesson: know whether a metric is continuous before tuning its threshold.**
+A threshold change that isn't tested against the specific failure it's meant
+to catch can look like a fix while being completely inert.
+
 ---
 
 ## Additional questions worth answering cold

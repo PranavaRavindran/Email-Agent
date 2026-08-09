@@ -75,9 +75,9 @@ without requiring a re-read of the full log to catch it.
 
 | File | eval_id | Asserts |
 | --- | --- | --- |
-| `tracker/tracker_staging.test.json` | `tracker_stages_without_committing` | A tracker update request calls `tracker_agent` once, stages new entries, and never commits them — the confirm-before-write guarantee. Judged with `tracker/test_config.json`: `rubric_based_final_response_quality_v1` (states entries were staged, states nothing written yet, asks for confirmation) is the real signal; `final_response_match_v2` is kept only at a lowered threshold of `0.3` — see "Stale references aren't just a trajectory problem" below. No trajectory score; see note below. |
+| `tracker/tracker_staging.test.json` | `tracker_stages_without_committing` | A tracker update request calls `tracker_agent` once, stages new entries, and never commits them — the confirm-before-write guarantee. Judged with `tracker/test_config.json`: `rubric_based_final_response_quality_v1` (states entries were staged, states nothing written yet, asks for confirmation) is the primary signal; `final_response_match_v2` runs at the standard `0.8` threshold against a shape-based reference — see "Stale references aren't just a trajectory problem" below. No trajectory score; see note below. |
 | `inbox_listing.test.json` | `inbox_lists_recent_emails` | A plain "show me my recent emails" request is answered by a single `inbox_agent` call — no unnecessary routing through classification. |
-| `routing/routing_classification.test.json` | `attention_request_routes_through_classification` | A "what needs my attention" request produces a response with emails grouped into priority categories (Urgent, Action Needed, FYI) — output only `classification_agent`'s involvement can produce, since `inbox_agent` alone would return a flat, uncategorized list. Judged with `routing/test_config.json`: `rubric_based_final_response_quality_v1` (grouping into Urgent/Action Needed, security alerts under Urgent, rejections/marketing not Action Needed, all emails accounted for) is the real signal; `final_response_match_v2` is kept only at a lowered threshold of `0.3` — see "Stale references aren't just a trajectory problem" below. No trajectory score; see note below. |
+| `routing/routing_classification.test.json` | `attention_request_routes_through_classification` | A "what needs my attention" request produces a response with emails grouped into priority categories (Urgent, Action Needed, FYI) — output only `classification_agent`'s involvement can produce, since `inbox_agent` alone would return a flat, uncategorized list. Judged with `routing/test_config.json`: `rubric_based_final_response_quality_v1` (grouping into Urgent/Action Needed, security alerts under Urgent, rejections/marketing not Action Needed, all emails accounted for) is the primary signal; `final_response_match_v2` runs at the standard `0.8` threshold against a shape-based reference — see "Stale references aren't just a trajectory problem" below. No trajectory score; see note below. |
 | `drafting/drafting_rejection.test.json` | `rejection_reply_does_not_express_continued_interest` | A reply drafted to a rejection email is a gracious acknowledgement that does NOT express continued interest in the declined role or ask about next steps for it. Guards against the drafting agent judging outcome from the subject line instead of the body. This is the most valuable case in the set. Judged with `drafting/test_config.json`: `final_response_match_v2`, `rubric_based_final_response_quality_v1`, and `rubric_based_tool_use_quality_v1` — no trajectory score; see note below. |
 | `tracker_preview.test.json` | `preview_does_not_stage` | A preview request ("show me what you'd add, but don't write anything") calls `tracker_agent` once and the response explicitly states nothing was staged or written. |
 
@@ -184,7 +184,7 @@ made through the judged final response instead of the trajectory — see
 
 | Metric | Measures | Used in |
 | --- | --- | --- |
-| `final_response_match_v2` | LLM-judged similarity of the final response to a fixed reference response. | All 5 cases. Threshold `0.8` on `inbox_listing.test.json`, `tracker_preview.test.json`, and `drafting/drafting_rejection.test.json`; lowered to `0.3` on `routing/routing_classification.test.json` and `tracker/tracker_staging.test.json`, where the reference is inherently stale — see "Stale references aren't just a trajectory problem" below. |
+| `final_response_match_v2` | LLM-judged pass/fail of the final response against a reference response. Despite the "match" name this is not a continuous similarity score: it is **binary** — the judge outputs "valid" or "invalid" per invocation (0 or 1), and with one invocation per case in this suite the overall score can only be exactly `0.0` or `1.0`. See `google/adk/evaluation/final_response_match_v2.py:133-137`. | All 5 cases, threshold `0.8` throughout — see "Stale references aren't just a trajectory problem" below for why `routing/routing_classification.test.json` and `tracker/tracker_staging.test.json` use shape-based references rather than a lowered threshold. |
 | `tool_trajectory_avg_score` | Exact match of tool names and args against a reference trajectory. | `inbox_listing.test.json`, `tracker_preview.test.json` only (via `evals/test_config.json`) — see "What the trajectory assertion can and can't see" above and the rejected-alternative note below for why the other three cases don't use it. |
 | `rubric_based_final_response_quality_v1` | LLM-judged pass/fail against a list of specific, independent yes/no criteria (rubrics) about the final response — not similarity to any reference text. | `drafting/drafting_rejection.test.json`, `routing/routing_classification.test.json`, and `tracker/tracker_staging.test.json`, alongside `final_response_match_v2` on each. |
 | `rubric_based_tool_use_quality_v1` | Same rubric mechanism as above, applied to the agent's tool-use behavior rather than its final text. | `drafting/drafting_rejection.test.json`. |
@@ -243,7 +243,7 @@ structural problem also applies to `final_response_match_v2`, and the
 demonstrated it: `routing/routing_classification.test.json` and
 `tracker/tracker_staging.test.json` both scored `0.0` while producing
 correct output, because each case's `.test.json` reference response was
-recorded against a specific inbox snapshot — it names actual senders and
+recorded against a specific inbox snapshot — it named actual senders and
 subjects (e.g. "Quarterly Report Due from jane@example.com" in the routing
 case) that existed at recording time. Once the live inbox moves on, a
 correct response naming *today's* emails has essentially no lexical overlap
@@ -252,33 +252,70 @@ judge scores it low regardless of whether the categorization or staging
 behavior was correct. A fixed reference response is a snapshot of one
 inbox's contents, not a specification of the behavior being tested — the
 same distinction the trajectory notes above draw between "exact match to a
-recorded call" and "the property that call needs to satisfy."
+recorded call" and "the property that call needs to satisfy." On the same
+run, `rubric_based_final_response_quality_v1` scored `1.0` on all four
+routing rubrics, with the judge explicitly confirming the response was
+correctly categorized — the clearest demonstration in this repo that
+`final_response_match_v2` and rubric scoring can diverge on the *same*
+response, and of why rubric scoring was added at all (see "Why rubric-based
+scoring was added" above).
 
-The fix is the same fix already applied to trajectory scoring: assert
-properties, not resemblance. Both cases now carry a
-`rubric_based_final_response_quality_v1` criterion (see their
-`test_config.json`) that asks content-based questions with no dependency on
-which specific emails are in the inbox — e.g. "does the response group
-emails into Urgent and Action Needed" rather than "does the response
-resemble this specific list of named emails." `final_response_match_v2` is
-kept on both cases rather than dropped, but its threshold is lowered to
-`0.3`: low enough that a stale-reference false failure like the one above
-can't fail the case on its own, while it still functions as a weak
-secondary signal (a near-zero score alongside a rubric pass is worth
-noticing, even if it shouldn't fail the run by itself). This mirrors how
-`final_response_match_v2` is deliberately kept alongside
-`rubric_based_final_response_quality_v1` on the drafting case for the
-opposite reason — see "Why rubric-based scoring was added" above — the
-two metrics are kept in tension on all three rubric-covered cases so a
-divergence between them stays visible instead of being silently resolved by
-dropping one.
+**First attempt, and why it didn't work.** The initial fix lowered
+`final_response_match_v2`'s threshold to `0.3` on both cases, on the
+assumption that this was a continuous similarity score and `0.3` would
+absorb a partial-overlap penalty from stale wording while still catching a
+truly wrong response. That assumption was wrong.
+`final_response_match_v2` is not continuous — it is a **binary** metric.
+The judge outputs "valid" or "invalid" per invocation, i.e. a score of `0`
+or `1`; with repeated invocations the overall score is the fraction judged
+valid, but this suite runs one invocation per case, so the only possible
+scores are exactly `0.0` or `1.0`
+(`google/adk/evaluation/final_response_match_v2.py:133-137`). A stale
+reference doesn't produce a low-but-passing score to catch with a lowered
+threshold — it produces `0.0`, and `0.0 >= 0.3` is exactly as false as
+`0.0 >= 0.8`. The threshold change was inert on the failure it was meant to
+fix.
+
+**The actual fix: shape-based references.** The reference response for
+both cases has been rewritten to describe the *shape* of a correct answer —
+what structure it must have — rather than its *content* — which specific
+emails it names. `routing/routing_classification.test.json`'s reference now
+states it's a summary of emails needing attention, groups them into
+priority categories (Urgent, Action Needed), places security alerts and
+verification codes under Urgent, and accounts for the remaining
+lower-priority emails without naming any of them individually.
+`tracker/tracker_staging.test.json`'s reference states that new entries
+were found and staged, that nothing has been written to the sheet yet, and
+asks whether to write them — again with no specific company, role, date, or
+count. Neither reference names anything that exists only in one inbox
+snapshot, so neither goes stale as the inbox changes. With a shape-based
+reference, `final_response_match_v2`'s threshold is restored to the
+standard `0.8` on both cases — `0.8` is the correct value for a binary
+metric precisely because it means "the judge must call this valid";
+anything lower would accept a response the judge rejected.
+
+**Why editing the reference was safe here.** Editing a `.test.json`'s
+expected output is normally the wrong move — it's how a failing case gets
+made to pass by moving the goalposts instead of fixing the agent. It's safe
+in this specific instance only because the substantive assertions had
+already been moved into `rubric_based_final_response_quality_v1` (unchanged
+by this pass — see the case's `test_config.json`), and the reference
+rewrite is strictly a reduction in specificity, not in what's required: the
+new reference still demands the same structural properties (priority
+grouping, security-alert placement, accounting for all emails; staged,
+not-written, asks-to-confirm) that the rubrics also check, it just no
+longer pins them to one inbox's contents. `final_response_match_v2` and
+`rubric_based_final_response_quality_v1` are still kept in tension on both
+cases — the same principle as "Why rubric-based scoring was added" above —
+so a future divergence between them stays visible instead of being silently
+resolved by dropping one metric.
 
 `drafting/drafting_rejection.test.json`'s reference is presumably subject to
 the same staleness risk in principle, but its case is anchored to a specific
 named sender ("the most recent email from Cisco") rather than a snapshot of
 the whole inbox, which has so far kept it stable; its threshold is left at
 `0.8` for that reason. If it starts producing similar false failures against
-live inbox drift, the same fix applies.
+live inbox drift, the same shape-based rewrite applies.
 
 ## Observability
 

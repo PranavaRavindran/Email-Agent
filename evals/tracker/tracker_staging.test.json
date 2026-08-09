@@ -19,7 +19,7 @@
           "final_response": {
             "parts": [
               {
-                "text": "I found new job application entries from June and July 2026 and staged them. They have not been written to the sheet yet. Would you like me to write them?"
+                "text": "I found new job application entries and staged them. Nothing has been written to the sheet yet — would you like me to write them?"
               }
             ],
             "role": "model"
