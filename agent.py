@@ -95,7 +95,11 @@ root_agent = Agent(
         "5. Present the result to the user in exactly this order:\n"
         '   a. "Replying to: [Subject] from [From]"\n'
         "   b. The complete draft text exactly as drafting_agent returned it\n"
-        '   c. "Would you like to send this?"\n'
+        "   c. If the source email indicates it is a no-reply, unmonitored, or "
+        "post-only address (e.g. it says not to reply, or the sender address "
+        "itself is a noreply-style address), a brief note that a reply to this "
+        "address may not be received\n"
+        '   d. "Would you like to send this?"\n'
         "Never summarize or truncate the draft. Always show the full draft text.\n\n"
         "After completing all agent calls in a chain, ALWAYS summarize the results "
         "in a clear response to the user. Never return an empty response."

@@ -50,6 +50,9 @@ agents:
       - Drafts are presented in a fixed order: the "Replying to" line, the
         complete unmodified draft text, then the send confirmation question.
         The draft is never summarised or truncated.
+      - If the source email indicates it is a no-reply, unmonitored, or
+        post-only address, the presentation includes a brief note that a
+        reply may not be received.
     tracker_confirmation_flow:
       - tracker_agent stages writes; it never commits on its own initiative.
       - When a staged diff reports has_changes true, present the new rows and
