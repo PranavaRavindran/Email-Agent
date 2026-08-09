@@ -525,6 +525,51 @@ doesn't repeat this.
 
 ---
 
+### 25. Shape-based references can't cover data-dependent volume
+
+Live run 2026-08-09, tracker staging, after the shape-based fix from #22 had
+been in place. `rubric_based_final_response_quality_v1` scored `1.0` on all
+three rubrics (states entries staged, states nothing written yet, asks for
+confirmation) and `hallucinations_v1` scored `1.0` — all 36 staged entries
+were grounded in the 51 emails fetched. The agent was correct.
+`final_response_match_v2` scored `0.0` anyway.
+
+**Why, given that #22 already fixed this class of failure.** #22's fix
+rewrote the reference to describe shape instead of content — no named
+company, role, date, or count — on the theory that a reference naming
+nothing inbox-specific can't go stale. That held for the routing case, whose
+response is a fixed handful of category buckets regardless of inbox size.
+It didn't hold here, because tracker staging's response itemises every
+staged entry, and the *number* of entries is itself inbox-dependent — 36
+this run, some other count next time. `final_response_match_v2` is binary:
+the judge returns VALID or INVALID for the response as a whole
+(`google/adk/evaluation/final_response_match_v2.py:133-137`), so a
+three-sentence reference describing the shape of a correct reply can never
+be judged a match against a 36-item itemisation, no matter how correct
+every one of those 36 items is. #22 fixed the case where the reference's
+*content* went stale; it did not, and could not, fix the case where the
+response's *length* is the variable.
+
+**The general rule.** A fixed reference — content-based or shape-based —
+can encode structure but not volume. It works when a response's shape is
+stable regardless of the data behind it (routing, inbox listing, drafting,
+tracker preview all qualify — see `evals/README.md`'s metrics table). It
+fails whenever a correct response's length scales with live data, because
+matching requires committing to a length in advance and no single reference
+can commit to all of them. In that situation only rubric-based scoring
+(independent yes/no questions about properties of the response, not a
+match against the whole thing) can judge correctness. Fix:
+`final_response_match_v2` removed from `evals/tracker/test_config.json`;
+`tracker/tracker_staging.test.json` is now judged by
+`rubric_based_final_response_quality_v1` and `hallucinations_v1` alone. The
+reference response in the `.test.json` was left in place — it still
+documents the intended shape of a correct reply, even with no metric
+scoring against it. See "Shape-based references have a limit:
+data-dependent volume" in `evals/README.md` for the three-data-point
+argument this entry summarizes.
+
+---
+
 ## Additional questions worth answering cold
 
 7. Why is "observed, not self-reported" the design rule for guards — and which

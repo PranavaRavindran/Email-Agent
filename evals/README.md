@@ -75,7 +75,7 @@ without requiring a re-read of the full log to catch it.
 
 | File | eval_id | Asserts |
 | --- | --- | --- |
-| `tracker/tracker_staging.test.json` | `tracker_stages_without_committing` | A tracker update request calls `tracker_agent` once, stages new entries, and never commits them — the confirm-before-write guarantee. Judged with `tracker/test_config.json`: `rubric_based_final_response_quality_v1` (states entries were staged, states nothing written yet, asks for confirmation) is the primary signal; `final_response_match_v2` runs at the standard `0.8` threshold against a shape-based reference — see "Stale references aren't just a trajectory problem" below. No trajectory score; see note below. |
+| `tracker/tracker_staging.test.json` | `tracker_stages_without_committing` | A tracker update request calls `tracker_agent` once, stages new entries, and never commits them — the confirm-before-write guarantee. Judged with `tracker/test_config.json`: `rubric_based_final_response_quality_v1` (states entries were staged, states nothing written yet, asks for confirmation) and `hallucinations_v1` are the only metrics. `final_response_match_v2` was removed from this case — see "Shape-based references have a limit: data-dependent volume" below. No trajectory score; see note below. |
 | `inbox_listing.test.json` | `inbox_lists_recent_emails` | A plain "show me my recent emails" request is answered by a single `inbox_agent` call — no unnecessary routing through classification. |
 | `routing/routing_classification.test.json` | `attention_request_routes_through_classification` | A "what needs my attention" request produces a response with emails grouped into priority categories (Urgent, Action Needed, FYI) — output only `classification_agent`'s involvement can produce, since `inbox_agent` alone would return a flat, uncategorized list. Judged with `routing/test_config.json`: `rubric_based_final_response_quality_v1` (categorized structure without requiring every category populated, Urgent means a job-search deadline, security alerts/verification codes are NOT Urgent, rejections/marketing not Action Needed, like emails categorised consistently, all emails accounted for) is the primary signal; `final_response_match_v2` runs at the standard `0.8` threshold against a shape-based reference — see "Stale references aren't just a trajectory problem" below. No trajectory score; see note below. |
 | `drafting/drafting_rejection.test.json` | `rejection_reply_does_not_express_continued_interest` | A reply drafted to a rejection email is a gracious acknowledgement that does NOT express continued interest in the declined role or ask about next steps for it. Guards against the drafting agent judging outcome from the subject line instead of the body. This is the most valuable case in the set. Judged with `drafting/test_config.json`: `final_response_match_v2`, `rubric_based_final_response_quality_v1`, and `rubric_based_tool_use_quality_v1` — no trajectory score; see note below. |
@@ -133,10 +133,14 @@ case now includes a rubric for this.
 Routing, drafting, and tracker staging are all now judged on response
 content, not trajectory — see the per-case notes below for why exact
 trajectory matching was unsuitable for each regardless of the fixes above.
-Routing and tracker staging combine `final_response_match_v2` with
+Routing combines `final_response_match_v2` with
 `rubric_based_final_response_quality_v1` (see "Stale references aren't just
 a trajectory problem" below); drafting combines it with
 `rubric_based_final_response_quality_v1` and `rubric_based_tool_use_quality_v1`.
+Tracker staging is judged on `rubric_based_final_response_quality_v1` and
+`hallucinations_v1` alone — `final_response_match_v2` was tried and then
+removed; see "Shape-based references have a limit: data-dependent volume"
+below.
 
 `routing/routing_classification.test.json`'s problem was never about
 `root_agent`'s behavior — it was that `classification_agent`'s args embed
@@ -163,10 +167,11 @@ tracker with application emails from June and July 2026" instead of the
 verbatim request), so an exact match on the `request` arg passed to
 `tracker_agent` cannot reliably pass. It lives in `evals/tracker/` with its
 own `test_config.json`; see the case's `description` field for detail. The
-staged-not-written assertion rests entirely on the judged response — now
-primarily its `rubric_based_final_response_quality_v1` rubrics rather than
-`final_response_match_v2`, per "Stale references aren't just a trajectory
-problem" below.
+staged-not-written assertion rests entirely on the judged response —
+`rubric_based_final_response_quality_v1` rubrics, alongside
+`hallucinations_v1`. `final_response_match_v2` was tried here too but
+removed for a reason distinct from the trajectory problem: see "Shape-based
+references have a limit: data-dependent volume" below.
 
 ## What the trajectory assertion can and can't see
 
@@ -184,7 +189,7 @@ made through the judged final response instead of the trajectory — see
 
 | Metric | Measures | Used in |
 | --- | --- | --- |
-| `final_response_match_v2` | LLM-judged pass/fail of the final response against a reference response. Despite the "match" name this is not a continuous similarity score: it is **binary** — the judge outputs "valid" or "invalid" per invocation (0 or 1), and with one invocation per case in this suite the overall score can only be exactly `0.0` or `1.0`. See `google/adk/evaluation/final_response_match_v2.py:133-137`. | All 5 cases, threshold `0.8` throughout — see "Stale references aren't just a trajectory problem" below for why `routing/routing_classification.test.json` and `tracker/tracker_staging.test.json` use shape-based references rather than a lowered threshold. |
+| `final_response_match_v2` | LLM-judged pass/fail of the final response against a reference response. Despite the "match" name this is not a continuous similarity score: it is **binary** — the judge outputs "valid" or "invalid" per invocation (0 or 1), and with one invocation per case in this suite the overall score can only be exactly `0.0` or `1.0`. See `google/adk/evaluation/final_response_match_v2.py:133-137`. | 4 of 5 cases, threshold `0.8` throughout — `inbox_listing.test.json`, `tracker_preview.test.json`, `routing/routing_classification.test.json`, and `drafting/drafting_rejection.test.json`. Not used in `tracker/tracker_staging.test.json` — see "Stale references aren't just a trajectory problem" for why `routing/routing_classification.test.json` uses a shape-based reference rather than a lowered threshold, and "Shape-based references have a limit: data-dependent volume" below for why the same approach was dropped entirely for tracker staging. |
 | `tool_trajectory_avg_score` | Exact match of tool names and args against a reference trajectory. | `inbox_listing.test.json`, `tracker_preview.test.json` only (via `evals/test_config.json`) — see "What the trajectory assertion can and can't see" above and the rejected-alternative note below for why the other three cases don't use it. |
 | `rubric_based_final_response_quality_v1` | LLM-judged pass/fail against a list of specific, independent yes/no criteria (rubrics) about the final response — not similarity to any reference text. | `drafting/drafting_rejection.test.json`, `routing/routing_classification.test.json`, and `tracker/tracker_staging.test.json`, alongside `final_response_match_v2` on each. |
 | `rubric_based_tool_use_quality_v1` | Same rubric mechanism as above, applied to the agent's tool-use behavior rather than its final text. | `drafting/drafting_rejection.test.json`. |
@@ -297,6 +302,11 @@ standard `0.8` on both cases — `0.8` is the correct value for a binary
 metric precisely because it means "the judge must call this valid";
 anything lower would accept a response the judge rejected.
 
+This fix held for routing but not for tracker staging — a shape-based
+reference cannot describe output whose length varies with live data. See
+"Shape-based references have a limit: data-dependent volume" below; the
+tracker case's `final_response_match_v2` criterion has since been removed.
+
 **Why editing the reference was safe here.** Editing a `.test.json`'s
 expected output is normally the wrong move — it's how a failing case gets
 made to pass by moving the goalposts instead of fixing the agent. It's safe
@@ -308,10 +318,13 @@ new reference still demands the same structural properties (priority
 grouping, security-alert placement, accounting for all emails; staged,
 not-written, asks-to-confirm) that the rubrics also check, it just no
 longer pins them to one inbox's contents. `final_response_match_v2` and
-`rubric_based_final_response_quality_v1` are still kept in tension on both
-cases — the same principle as "Why rubric-based scoring was added" above —
-so a future divergence between them stays visible instead of being silently
-resolved by dropping one metric.
+`rubric_based_final_response_quality_v1` were kept in tension on both cases
+at the time — the same principle as "Why rubric-based scoring was added"
+above — so a future divergence between them would stay visible instead of
+being silently resolved by dropping one metric. That held for routing; for
+tracker staging, the divergence itself turned out to be the metric's fault
+rather than the agent's, and dropping `final_response_match_v2` was the
+correct resolution once that was established — see below.
 
 `drafting/drafting_rejection.test.json`'s reference is presumably subject to
 the same staleness risk in principle, but its case is anchored to a specific
@@ -319,6 +332,66 @@ named sender ("the most recent email from Cisco") rather than a snapshot of
 the whole inbox, which has so far kept it stable; its threshold is left at
 `0.8` for that reason. If it starts producing similar false failures against
 live inbox drift, the same shape-based rewrite applies.
+
+## Shape-based references have a limit: data-dependent volume
+
+The shape-based rewrite described above ("Stale references aren't just a
+trajectory problem") fixed `routing/routing_classification.test.json` but
+not `tracker/tracker_staging.test.json`, even though both references were
+rewritten the same way and for the same reason. The difference is whether
+the response's *length* depends on live data.
+
+Three data points, in order, make the argument:
+
+1. **Routing, stale content-based reference → `0.0` on correct output.**
+   The original reference named specific emails from a recorded inbox
+   snapshot ("Quarterly Report Due from jane@example.com"). A correct
+   response about today's inbox shares no lexical overlap with emails that
+   no longer exist, so the judge scored it `0.0` regardless of whether the
+   categorization was right.
+2. **Routing, shape-based reference → `1.0` on correct output (fixed).**
+   Rewriting the reference to state the structural shape — grouped into
+   priority categories, remaining emails accounted for, no category named
+   individually — removed the dependency on any one inbox's contents. The
+   routing case's response is short and structurally fixed (a handful of
+   category buckets) regardless of how many emails are in the inbox, so a
+   shape description fully covers it.
+3. **Tracker staging, shape-based reference → `0.0` on correct output,
+   because the response itemises N entries where N varies.** On the
+   2026-08-09 live run, `rubric_based_final_response_quality_v1` scored
+   `1.0` on all three rubrics (states entries staged, states nothing written
+   yet, asks for confirmation) and `hallucinations_v1` scored `1.0` — all 36
+   staged entries were grounded in the 51 emails fetched. The agent was
+   correct. `final_response_match_v2` still scored `0.0`. The failure is
+   structural, not a stale-content problem this time: the case's response
+   contains an itemised list whose length depends on live inbox contents (36
+   entries this run), and `final_response_match_v2` is binary — the judge
+   returns VALID or INVALID for the whole response
+   (`google/adk/evaluation/final_response_match_v2.py:133-137`) — so a
+   three-sentence shape-based reference can never be judged a match against
+   a 36-item response, even though every assertion the reference makes is
+   present in the actual response somewhere.
+
+**The rule: a fixed reference can encode structure but not volume.** A
+shape-based reference works when the response's shape is stable regardless
+of the data behind it — true for `routing/routing_classification.test.json`,
+`inbox_listing.test.json`, `drafting/drafting_rejection.test.json`, and
+`tracker_preview.test.json`, all of which produce a response whose length
+doesn't scale with how much data the agent found. It fails when the
+response's length is itself data-dependent, as in
+`tracker/tracker_staging.test.json`, where the agent is supposed to itemise
+every staged entry and the count of entries varies run to run. No fixed
+reference — content-based or shape-based — can be written to match a
+variable-length itemisation, because matching requires picking a length in
+advance. For that case, only rubrics (which ask independent yes/no questions
+about properties of the response, not about matching it as a whole) can
+judge correctness. `final_response_match_v2` has accordingly been removed
+from `tracker/test_config.json`; the case is now judged by
+`rubric_based_final_response_quality_v1` and `hallucinations_v1` alone.
+
+`tracker/tracker_staging.test.json`'s reference response itself is
+unchanged and is not being deleted — it still documents the intended shape
+of a correct reply, even though no metric currently scores against it.
 
 ## Eval artifacts encode the urgency taxonomy
 
@@ -378,6 +451,10 @@ why the committed `run_log.jsonl` contains a historical record it is
 - `routing/routing_classification.test.json` has no path/trajectory
   coverage at all — see "What the trajectory assertion can and can't see"
   above for why.
+- `tracker/tracker_staging.test.json` has no `final_response_match_v2`
+  coverage — see "Shape-based references have a limit: data-dependent
+  volume" above for why. It's judged by `rubric_based_final_response_quality_v1`
+  and `hallucinations_v1` only.
 
 ## What it does NOT assert
 
