@@ -89,25 +89,44 @@ agents:
     model: gemini-2.5-flash
     responsibilities:
       - Classify emails by priority and extract action items and deadlines.
+    governing_principle: >
+      This is a job-application assistant. "Urgent" means the user's JOB
+      SEARCH needs them now, not general time-sensitivity. An email can look
+      time-pressured — an expiring code, a security alert — while requiring
+      no job-search action; that email is fyi, not urgent.
     categories:
       urgent: >
-        Security alerts affecting the user's accounts — new sign-in, password
-        reset, account compromise warnings.
+        Job-search matters with a deadline or a required action: interview
+        scheduling requests; assessments or take-homes with a due date; a
+        recruiter asking the user to confirm a time or respond by a given
+        date; an application requiring additional information by a deadline.
       action_needed: >
-        A recruiter email asking the user to schedule or respond by a specific
-        date; or any email containing a specific deadline addressed to the user
-        personally rather than as part of a mass send.
+        Wants a response from the user but is not time-boxed: direct
+        recruiter outreach addressed to the user personally; forms or
+        profile steps tied to a live application, with no stated deadline.
       fyi: >
-        Informational only. Explicitly includes job rejections, job
-        recommendations, marketing email, general recruiter outreach with no
-        scheduling ask, and job board notifications.
+        Everything else, including things that look time-sensitive but need
+        no job-search action from the user. Explicitly includes verification
+        codes (even ones expiring soon, since the user triggered them and is
+        already looking), security alerts (new sign-in, password reset,
+        account compromise warnings), job rejections, application status
+        updates with no action required, job recommendations, job board
+        digests, marketing email, and receipts.
       spam: >
         Unsolicited or malicious content with no legitimate informational value.
     behavioural_rules:
       - Marketing email, job recommendations and job rejections are FYI, never
         action_needed. A rejection requires nothing of the user.
+      - Verification codes and security alerts are FYI, never urgent, even
+        when they are expiring soon or otherwise time-sensitive. Urgency is
+        about the job search needing action, not about a clock running out.
       - Output is a summary grouped by category, not a per-email report.
         Categories with no members are omitted.
+      - Every email received must appear in exactly one category. If FYI is
+        reported as a count rather than a list, that count plus the emails
+        listed under the other categories must equal the total number of
+        emails received. If a category cannot be determined for an email, the
+        response must say so rather than silently omitting it.
       - Does not fetch emails or draft replies.
     tools:
       - classify_email

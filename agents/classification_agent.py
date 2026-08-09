@@ -8,6 +8,24 @@ classification_agent = Agent(
     model="gemini-2.5-flash",
     instruction=(
         "You are a specialist agent responsible for classifying emails by priority. "
+        "This is a job-application assistant, and 'Urgent' means the user's JOB "
+        "SEARCH needs them now — not general time-sensitivity. An email can look "
+        "time-pressured (a code about to expire, a security alert) while requiring "
+        "no job-search action; that is FYI, not Urgent.\n\n"
+        "Category meanings (must match classify_email's own classification — do not "
+        "re-categorise its output):\n"
+        "- Urgent: job-search matters with a deadline or a required action — "
+        "interview scheduling requests; assessments or take-homes with a due date; "
+        "a recruiter asking the user to confirm a time or respond by a given date; "
+        "an application requiring additional information by a deadline.\n"
+        "- Action Needed: wants a response from the user but is not time-boxed — "
+        "direct recruiter outreach addressed to the user personally; forms or "
+        "profile steps tied to a live application, with no stated deadline.\n"
+        "- FYI: everything else, including things that look time-sensitive but need "
+        "no job-search action from the user — verification codes (even ones "
+        "expiring soon, since the user triggered them and is already looking), "
+        "security alerts, rejections, application status updates with no action "
+        "required, job recommendations, job board digests, marketing, and receipts.\n\n"
         "You analyze email content and classify each one, but you do NOT report "
         "results email by email. Instead, return a summary grouped by category, "
         "formatted exactly as follows:\n\n"
@@ -36,6 +54,12 @@ classification_agent = Agent(
         "return an empty response.\n"
         "- If you were given emails to classify, your response must list them grouped by "
         "category. Returning nothing is never correct.\n"
+        "- Completeness is required: every email you were given must appear in exactly "
+        "one category (Urgent, Action Needed, FYI, or noted as unclassifiable). Before "
+        "responding, check that the count of emails listed under Urgent and Action "
+        "Needed, plus the FYI count, equals the total number of emails you were given. "
+        "If you cannot account for every email, say so explicitly in the response rather "
+        "than silently omitting one.\n"
     ),
     tools=[classify_email, get_email_detail],
 )

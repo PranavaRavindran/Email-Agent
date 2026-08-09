@@ -414,6 +414,69 @@ so tightening the reference back up cost nothing.
 A threshold change that isn't tested against the specific failure it's meant
 to catch can look like a fix while being completely inert.
 
+### 23. Inconsistent urgency, and an email that disappeared
+
+Live run 2026-08-09, routing eval. Both defects were surfaced by
+`rubric_based_final_response_quality_v1` (score `0.5`) while
+`final_response_match_v2` scored `1.0` on the exact same response — the
+similarity judge passed output the rubric judge caught as wrong. Same shape
+as #22: two metrics disagreeing, and the rubric being the one worth
+believing.
+
+**Defect A — inconsistent categorisation.** Two verification codes landed in
+two different categories in one response: a TikTok code (expiring in 30
+minutes) under Urgent, an ADP code (expiring in 15 minutes) under Action
+Needed. The judge: *"the 'ADP verification code', which is also a
+time-sensitive verification code, is placed under 'Action Needed' rather
+than 'Urgent'."* The judge's own framing revealed the underlying problem —
+it was auditing for consistency with a *generic time-sensitivity* notion of
+urgency, and the classification prompt agreed with it, because that's what
+the prompt actually said. `security_alerts_under_urgent`, the routing rubric
+this eval is graded against, asserted exactly that: alerts and codes belong
+under Urgent. It was internally consistent with the old prompt and wrong
+about what "Urgent" should mean for this system.
+
+**The taxonomy decision.** This is a job-application assistant. The owner's
+call: "Urgent" means the user's *job search* needs them now — an interview
+time to confirm, an assessment with a due date, a deadline on an
+application — not that some clock, anywhere, is running out. A verification
+code is time-sensitive to the service that sent it, not to the job search;
+the user triggered it and is already looking at their phone. Under the old
+prompt this was reversed: security alerts explicitly mapped to Urgent by
+name, and nothing distinguished "expires soon" from "job search needs
+action." Two codes with two different expiry windows had no rule forcing
+them into the same bucket, so a coin-flip level of prompt sensitivity decided
+where each landed — the actual bug behind Defect A. Fixed by rewriting
+`classify_email`'s prompt (governing principle + criteria + examples),
+`classification_agent`'s instructions, `agent_spec.yaml`'s category
+definitions, and the routing rubrics to all state the same rule: urgent is
+job-search action, not generic time pressure. Verification codes and
+security alerts moved from Urgent to FYI everywhere they were named.
+
+**Defect B — a silent drop.** `inbox_agent` fetched 20 emails; the
+classification summary accounted for 19 (1 Urgent + 3 Action Needed + 15
+FYI). The judge: *"one email fetched by inbox_agent is not accounted for in
+the classification summary."* No guard existed on this path. The equivalent
+check — comparing what was fetched to what was reported — already exists for
+the tracker path (`fetch_gap` in `stage_write`, #16), enforced in code
+against tool-recorded counts. `classification_agent` had no analogous check,
+guarded or unguarded: nothing compared the emails it was given to the
+categories it produced, so one could vanish between the fetch and the
+summary with no signal.
+
+**Fix, and its limit.** Added a completeness requirement to
+`classification_agent`'s instructions: every email received must land in
+exactly one category, the FYI count plus the listed Urgent/Action-Needed
+items must equal the total received, and the agent must say so explicitly if
+it cannot account for all of them. This is an instruction-level guard only —
+unlike `fetch_gap`, there is no code-level count comparison on this path, so
+it is a request, not a guarantee. Per the project's own lesson (#9, #11):
+"instructions are requests; code is a guarantee." The rubric
+(`accounts_for_all_emails`) is what actually verifies this behaviour today;
+a code-enforced count check on the classification path, mirroring
+`stage_write`'s, is future work if instruction-level compliance proves
+unreliable.
+
 ---
 
 ## Additional questions worth answering cold

@@ -13,18 +13,34 @@
           "description": "This is the core behavior the case exists to catch: that classification_agent's involvement actually produced categorized output, not a flat list."
         },
         {
-          "rubric_id": "security_alerts_under_urgent",
+          "rubric_id": "verification_codes_and_security_alerts_not_urgent",
           "type": "FINAL_RESPONSE_QUALITY",
           "rubric_content": {
-            "text_property": "Security alerts and verification codes appear under Urgent, not FYI."
+            "text_property": "Verification codes and security alerts (e.g. a new sign-in, password reset, or account compromise warning) are NOT categorised as Urgent, even when they mention expiring soon."
           },
-          "description": "Guards against time-sensitive security emails being deprioritized into a low-attention bucket."
+          "description": "Urgent means the user's job search needs action now, not general time-sensitivity. A verification code or security alert requires no job-search action, however soon it expires."
+        },
+        {
+          "rubric_id": "urgent_is_job_search_deadline_shaped",
+          "type": "FINAL_RESPONSE_QUALITY",
+          "rubric_content": {
+            "text_property": "Every email categorised as Urgent, if any, is a job-search matter requiring action from the user, such as an interview scheduling request, an assessment or take-home with a due date, or an application requiring information by a deadline."
+          },
+          "description": "Guards against generic time-sensitivity (expiring codes, account alerts) being treated as Urgent instead of job-search deadlines."
+        },
+        {
+          "rubric_id": "consistent_categorisation_of_like_emails",
+          "type": "FINAL_RESPONSE_QUALITY",
+          "rubric_content": {
+            "text_property": "Two emails of the same kind (e.g. two verification codes) are categorised consistently with each other, not split across different categories."
+          },
+          "description": "Guards against the same kind of email landing in different categories within one response, which indicates the classification rule was applied inconsistently rather than derived from a stable rule."
         },
         {
           "rubric_id": "rejections_and_marketing_not_action_needed",
           "type": "FINAL_RESPONSE_QUALITY",
           "rubric_content": {
-            "text_property": "Job rejections, job recommendations and marketing emails are NOT categorised as Action Needed."
+            "text_property": "Job rejections, job recommendations, marketing emails, verification codes and security alerts are NOT categorised as Action Needed."
           },
           "description": "Guards against over-eager classification treating no-action correspondence as requiring a response."
         },
