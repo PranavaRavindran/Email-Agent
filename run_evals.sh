@@ -25,7 +25,7 @@ CASES=(
   "routing:evals/routing/routing_classification.test.json:evals/routing/test_config.json"
   "drafting:evals/drafting/drafting_rejection.test.json:evals/drafting/test_config.json"
   "tracker:evals/tracker/tracker_staging.test.json:evals/tracker/test_config.json"
-  "tracker_preview:evals/tracker_preview.test.json:evals/test_config.json"
+  "tracker_preview:evals/tracker_preview/tracker_preview.test.json:evals/tracker_preview/test_config.json"
 )
 
 ONLY="${1:-}"

@@ -1,0 +1,34 @@
+{
+  "criteria": {
+    "tool_trajectory_avg_score": 1.0,
+    "rubric_based_final_response_quality_v1": {
+      "threshold": 0.8,
+      "rubrics": [
+        {
+          "rubric_id": "presents_entries_as_preview_not_completed_work",
+          "type": "FINAL_RESPONSE_QUALITY",
+          "rubric_content": {
+            "text_property": "The response presents entries as a preview of what WOULD be added, not as completed work."
+          },
+          "description": "Guards against the response reading as if the staging or write already happened."
+        },
+        {
+          "rubric_id": "states_nothing_staged_or_written",
+          "type": "FINAL_RESPONSE_QUALITY",
+          "rubric_content": {
+            "text_property": "The response states that nothing has been staged or written to the sheet."
+          },
+          "description": "This is the preview-does-not-stage guarantee the case exists to catch."
+        },
+        {
+          "rubric_id": "does_not_claim_a_write_occurred",
+          "type": "FINAL_RESPONSE_QUALITY",
+          "rubric_content": {
+            "text_property": "The response does not claim that any write, staging, or sheet modification occurred."
+          },
+          "description": "Catches diff-report vocabulary (e.g. 'new entries and status changes') that implies stage_write ran despite the user asking for a preview only."
+        }
+      ]
+    }
+  }
+}
