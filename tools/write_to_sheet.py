@@ -8,6 +8,7 @@ from googleapiclient.discovery import build
 from auth import get_gmail_service
 from tools.find_application_date import find_application_date, is_confirmation_email
 from tools.get_email_detail import get_email_detail, get_fetched_ids
+from tools.mcp_client import mcp_call
 from tools.search_email_ids import get_last_search_count, get_last_search_range
 
 _FETCH_COMPLETENESS_ERROR = (
@@ -371,6 +372,35 @@ def _merge_duplicates(valid_entries: list) -> tuple:
     return deduped_entries, duplicates_in_batch
 
 
+def _read_existing_rows(sheets_service) -> list:
+    """Reads the existing Tracker rows (range _READ_RANGE) via the MCP
+    server's sheets_getRange tool unless USE_MCP_SHEETS=0, in which case it
+    falls back to the raw Sheets API. Read at call time, not import time, so
+    the flag can be toggled without reimporting.
+
+    The write path (_apply / commit_write) always uses the raw Sheets API
+    via sheets_service regardless of this flag - the MCP server has no
+    Sheets write tools.
+    """
+    if os.environ.get("USE_MCP_SHEETS", "1") != "0":
+        response = mcp_call(
+            "sheets_getRange",
+            {"spreadsheetId": _SPREADSHEET_ID, "range": _READ_RANGE},
+        )
+        return response.get("values") or []
+
+    return (
+        sheets_service.spreadsheets()
+        .values()
+        .get(
+            spreadsheetId=_SPREADSHEET_ID,
+            range=_READ_RANGE,
+        )
+        .execute()
+        .get("values", [])
+    )
+
+
 def _resolve(entries: list) -> dict:
     """Sorts and normalizes entries, reads the existing Tracker rows, and runs
     the matching logic against them. Does NOT write anything to the sheet -
@@ -390,16 +420,7 @@ def _resolve(entries: list) -> dict:
     gmail_service = get_gmail_service()
     sheets_service = build("sheets", "v4", credentials=gmail_service._http.credentials)
 
-    existing_rows = (
-        sheets_service.spreadsheets()
-        .values()
-        .get(
-            spreadsheetId=_SPREADSHEET_ID,
-            range=_READ_RANGE,
-        )
-        .execute()
-        .get("values", [])
-    )
+    existing_rows = _read_existing_rows(sheets_service)
 
     print(f"Read {len(existing_rows)} existing rows from Tracker sheet")
 

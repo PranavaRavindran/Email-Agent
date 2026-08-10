@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+import write_to_sheet as wts
 from write_to_sheet import (
     _company_matches,
     _keys_match,
@@ -533,3 +534,62 @@ class TestPreviewResolveFetchCompleteness:
 
         assert "error" not in result
         assert "entries" in result
+
+
+# ---------------------------------------------------------------------------
+# _read_existing_rows - raw API path and MCP path (USE_MCP_SHEETS)
+# ---------------------------------------------------------------------------
+
+
+class TestReadExistingRows:
+    def test_mcp_path_maps_get_range_response_to_values(self, monkeypatch):
+        monkeypatch.setenv("USE_MCP_SHEETS", "1")
+        # Representative sheets_getRange response, per SheetsService.ts's
+        # getRange handler - see MCP_INTEGRATION.md gate G3: {range, values}
+        # wraps the exact same raw values.get() response shape the raw-API
+        # path below already consumes.
+        fixture = {
+            "range": "Tracker!A3:F5",
+            "values": [
+                ["2026-06-01", "Acme Corp", "Software Engineer", "", "Email", "Applied"],
+                ["", "Other Co", "Product Manager", "", "Email", "Rejected"],
+            ],
+        }
+        calls = []
+
+        def fake_mcp_call(tool_name, arguments):
+            calls.append((tool_name, arguments))
+            return fixture
+
+        monkeypatch.setattr(wts, "mcp_call", fake_mcp_call)
+
+        rows = wts._read_existing_rows(sheets_service=None)
+
+        assert calls == [
+            ("sheets_getRange", {"spreadsheetId": wts._SPREADSHEET_ID, "range": wts._READ_RANGE})
+        ]
+        assert rows == fixture["values"]
+
+    def test_raw_path_reads_via_sheets_service(self, monkeypatch):
+        monkeypatch.setenv("USE_MCP_SHEETS", "0")
+
+        class _FakeValues:
+            def get(self, spreadsheetId, range):
+                assert spreadsheetId == wts._SPREADSHEET_ID
+                assert range == wts._READ_RANGE
+                return self
+
+            def execute(self):
+                return {"values": [["2026-06-01", "Acme", "Eng", "", "Email", "Applied"]]}
+
+        class _FakeSpreadsheets:
+            def values(self):
+                return _FakeValues()
+
+        class _FakeSheetsService:
+            def spreadsheets(self):
+                return _FakeSpreadsheets()
+
+        rows = wts._read_existing_rows(_FakeSheetsService())
+
+        assert rows == [["2026-06-01", "Acme", "Eng", "", "Email", "Applied"]]
