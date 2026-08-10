@@ -1,8 +1,10 @@
 import base64
 import html
+import os
 import re
 
 from auth import get_thread_local_gmail_service
+from tools.mcp_client import mcp_call
 
 _MAX_BODY_LENGTH = 2000
 
@@ -44,13 +46,51 @@ def _fetch_one(email_id: str, quiet: bool = False) -> dict:
     get_emails_bulk. When quiet is True, the routine per-email progress
     lines are suppressed - get_emails_bulk prints one aggregate summary for
     the whole batch instead. The empty-body WARNING still prints regardless,
-    since it flags a real data problem rather than routine progress."""
+    since it flags a real data problem rather than routine progress.
+
+    The fetch itself goes through the MCP server's gmail_get tool unless
+    USE_MCP_GMAIL=0, in which case it falls back to the raw Gmail API (MIME
+    tree walk, base64 decode, HTML fallback). Read at call time, not import
+    time, so the flag can be toggled without reimporting."""
     if email_id in _BODY_CACHE:
         if not quiet:
             print(f"[get_email_detail] {email_id} (cached)")
         _FETCHED_IDS.add(email_id)
         return _BODY_CACHE[email_id]
 
+    if os.environ.get("USE_MCP_GMAIL", "1") != "0":
+        subject, from_, to, date, body = _fetch_via_mcp(email_id)
+    else:
+        subject, from_, to, date, body = _fetch_via_raw_api(email_id)
+
+    if not body:
+        print(f"[get_email_detail] WARNING empty body for id {email_id} subject {subject}")
+    if len(body) > _MAX_BODY_LENGTH:
+        body = body[:_MAX_BODY_LENGTH] + "...[truncated]"
+
+    if not quiet:
+        print(f"[get_email_detail] {email_id} {subject} {len(body)}")
+
+    _FETCHED_IDS.add(email_id)
+
+    result = {
+        "email": {
+            "id": email_id,
+            "from": from_,
+            "to": to,
+            "subject": subject,
+            "date": date,
+            "body": body,
+        }
+    }
+    _BODY_CACHE[email_id] = result
+    return result
+
+
+def _fetch_via_raw_api(email_id: str) -> tuple[str, str, str, str, str]:
+    """Fetches via the raw Gmail API: MIME tree walk, base64 decode, HTML
+    fallback. Returns (subject, from, to, date, body), body not yet
+    truncated."""
     service = get_thread_local_gmail_service()
 
     msg = (
@@ -66,31 +106,33 @@ def _fetch_one(email_id: str, quiet: bool = False) -> dict:
 
     headers = {h["name"]: h["value"] for h in msg["payload"]["headers"]}
     body = _extract_body(msg["payload"])
-    if not body:
-        print(
-            f"[get_email_detail] WARNING empty body for id {email_id} "
-            f"subject {headers.get('Subject', '')}"
-        )
-    if len(body) > _MAX_BODY_LENGTH:
-        body = body[:_MAX_BODY_LENGTH] + "...[truncated]"
 
-    if not quiet:
-        print(f"[get_email_detail] {email_id} {headers.get('Subject', '')} {len(body)}")
+    return (
+        headers.get("Subject", ""),
+        headers.get("From", ""),
+        headers.get("To", ""),
+        headers.get("Date", ""),
+        body,
+    )
 
-    _FETCHED_IDS.add(email_id)
 
-    result = {
-        "email": {
-            "id": email_id,
-            "from": headers.get("From", ""),
-            "to": headers.get("To", ""),
-            "subject": headers.get("Subject", ""),
-            "date": headers.get("Date", ""),
-            "body": body,
-        }
-    }
-    _BODY_CACHE[email_id] = result
-    return result
+def _fetch_via_mcp(email_id: str) -> tuple[str, str, str, str, str]:
+    """Fetches via the MCP server's gmail_get tool. Returns (subject, from,
+    to, date, body), body not yet truncated.
+
+    The server's own body extraction already falls back to the message
+    snippet when no text/plain part exists (see MCP_INTEGRATION.md's gate
+    G2), so an empty body here means the server had genuinely nothing -
+    treated downstream exactly like an empty raw-path body, not a new case."""
+    response = mcp_call("gmail_get", {"messageId": email_id})
+
+    return (
+        response.get("subject") or "",
+        response.get("from") or "",
+        response.get("to") or "",
+        response.get("date") or "",
+        response.get("body") or "",
+    )
 
 
 def _find_part_data(payload: dict, mime_type: str) -> str | None:

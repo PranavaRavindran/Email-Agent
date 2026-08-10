@@ -1,4 +1,5 @@
 import get_email_detail as ged
+import pytest
 
 
 def _fake_service(call_log, subject="Hello", body_text="Body text"):
@@ -83,3 +84,69 @@ class TestBodyCache:
         ged.get_email_detail("id-2")
 
         assert call_log == ["id-1", "id-2"]
+
+
+# ---------------------------------------------------------------------------
+# MCP fetch path (USE_MCP_GMAIL=1)
+# ---------------------------------------------------------------------------
+
+
+class TestMCPFetchPath:
+    def setup_method(self):
+        ged.reset_fetched_ids()
+
+    def teardown_method(self):
+        ged.reset_fetched_ids()
+
+    def test_mcp_response_maps_to_wrapper_shape_truncates_and_records_id(self, monkeypatch):
+        monkeypatch.setenv("USE_MCP_GMAIL", "1")
+        # Representative gmail_get (format=full) response, per
+        # GmailService.ts's `get` handler - see MCP_INTEGRATION.md gate G2.
+        long_body = "x" * 2500
+        fixture = {
+            "id": "id-1",
+            "threadId": "thread-1",
+            "labelIds": ["INBOX"],
+            "snippet": "x" * 100,
+            "subject": "Hello",
+            "from": "a@b.com",
+            "to": "me@example.com",
+            "date": "Tue, 14 Apr 2026 09:00:00 -0400",
+            "body": long_body,
+            "attachments": [],
+        }
+        calls = []
+
+        def fake_mcp_call(tool_name, arguments):
+            calls.append((tool_name, arguments))
+            return fixture
+
+        monkeypatch.setattr(ged, "mcp_call", fake_mcp_call)
+
+        result = ged.get_email_detail("id-1")
+
+        assert calls == [("gmail_get", {"messageId": "id-1"})]
+        assert result == {
+            "email": {
+                "id": "id-1",
+                "from": "a@b.com",
+                "to": "me@example.com",
+                "subject": "Hello",
+                "date": "Tue, 14 Apr 2026 09:00:00 -0400",
+                "body": "x" * 2000 + "...[truncated]",
+            }
+        }
+        assert "id-1" in ged.get_fetched_ids()
+
+    def test_mcp_error_propagates_and_does_not_record_fetched_id(self, monkeypatch):
+        monkeypatch.setenv("USE_MCP_GMAIL", "1")
+
+        def fake_mcp_call(tool_name, arguments):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(ged, "mcp_call", fake_mcp_call)
+
+        with pytest.raises(RuntimeError, match="boom"):
+            ged.get_email_detail("id-1")
+
+        assert "id-1" not in ged.get_fetched_ids()
