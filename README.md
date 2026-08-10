@@ -225,6 +225,44 @@ sheets, and cannot send, modify, or delete mail.
 If authentication fails after a long idle period, delete `token.pickle` and
 rerun.
 
+### Optional: MCP-backed fetch/read paths
+
+`get_email_detail`'s fetch and `write_to_sheet`'s read of existing Tracker
+rows can go through a [Google Workspace MCP
+server](https://github.com/gemini-cli-extensions/workspace) instead of the
+raw Gmail/Sheets API calls, as a programmatic client (its tools are not
+exposed to the model). See `MCP_INTEGRATION.md` for the full architecture,
+gate decisions, and dual-auth model. This is optional — leaving it unset
+uses the MCP path by default; setting either flag to `"0"` reverts to the
+raw API path this project has always used.
+
+1. Clone and build the server once:
+   ```
+   git clone https://github.com/gemini-cli-extensions/workspace ~/.workspace-mcp
+   cd ~/.workspace-mcp && npm install && npm run build
+   ```
+   Requires Node.js >= 20. `tools/mcp_client.py` looks for it at
+   `WORKSPACE_MCP_DIR` (env var, default `~/.workspace-mcp`) and fails with
+   build instructions if `workspace-server/dist/index.js` is missing.
+2. Two independent kill switches, both default `"1"` (MCP on):
+   ```
+   export USE_MCP_GMAIL=0    # revert get_email_detail's fetch to the raw Gmail API
+   export USE_MCP_SHEETS=0   # revert write_to_sheet's sheet read to the raw Sheets API
+   ```
+3. Verify the server's tool allowlist took effect (no auth needed):
+   ```
+   python scripts/mcp_verify.py
+   ```
+4. One-time, user-run only (never run this from an agent): smoke-test an
+   actual `gmail_get` and `sheets_getRange` call. First run opens a browser
+   for the MCP server's **own** OAuth consent — separate from this
+   project's `credentials.json`/`token.pickle`, stored in the OS keychain.
+   Watch the consent screen and confirm it asks for read-only Gmail and
+   Sheets access only, then abort if it asks for anything broader:
+   ```
+   python scripts/mcp_smoke.py <a-gmail-message-id>
+   ```
+
 ---
 
 ## Project layout
@@ -249,10 +287,16 @@ tools/
   classify_email.py
   draft_reply.py
   write_to_sheet.py         normalisation, matching, staging, commit
+  mcp_client.py             MCP stdio client for the Workspace MCP server
+
+scripts/
+  mcp_verify.py             no-auth proof the MCP tool allowlist took effect
+  mcp_smoke.py              one-time, user-run MCP call smoke test (needs OAuth)
 
 tests/                      pytest unit tests
 evals/                      ADK evaluation cases, one subdirectory per case
 eval_agent/                 thin wrapper exposing root_agent to `adk eval`
+MCP_INTEGRATION.md          MCP server architecture, gates, dual-auth model
 ```
 
 ---

@@ -684,6 +684,62 @@ mismatch mid-trajectory, not only in the final answer.
 
 ---
 
+### 28. Migrating fetch/read plumbing behind a stable model-facing surface
+
+Not a bug — an architecture change, recorded here because two of its
+premises turned out to be wrong and were only caught by checking rather
+than trusting the plan that specified them.
+
+**What changed.** `get_email_detail`'s fetch and `write_to_sheet`'s read of
+existing Tracker rows can now go through a Google Workspace MCP server
+(`gmail_get`, `sheets_getRange`) as a programmatic client, instead of the
+raw Gmail/Sheets API calls they'd always used. The nine model-facing tools,
+`agent_spec.yaml`, and every eval and trajectory are unchanged — the MCP
+server's own tools are never exposed to the model. Both paths are
+kill-switched (`USE_MCP_GMAIL`, `USE_MCP_SHEETS`, default on), and the raw
+paths stay in the code, unremoved, until evals confirm parity. Full
+architecture, the three migration gates, and the schemas that justified
+them are in `MCP_INTEGRATION.md`.
+
+**Two premises specified up front turned out to be false, and the
+migration instructions themselves said to stop and check rather than
+proceed on the plan's word.** Both were caught by actually reading source
+and running commands instead of trusting the brief:
+
+1. The `mcp` Python package was asserted to already be installed (ADK
+   supposedly depended on it). `pip show mcp` failed, and `pip show
+   google-adk`'s own declared dependency list doesn't include `mcp`. It
+   had to be installed fresh (`mcp==2.0.0`) and pinned into
+   `requirements.txt`.
+2. The plan assumed `ClientSession` might need call serialization behind a
+   lock ("bulk fetch of ~50 may slow"). Reading the installed SDK's
+   `JSONRPCDispatcher` source showed it tracks concurrent requests in an
+   `_in_flight` dict keyed by JSON-RPC id — genuine multiplexing, not
+   one-at-a-time. Serializing calls would have been a real, avoidable
+   performance regression against `get_emails_bulk`'s 8-thread pool, shipped
+   on the strength of an assumption a five-minute source read overturned.
+
+**Why this belongs next to the bug entries above.** Both are the same
+failure shape as #15 ("claims asserted and later disproven") and the
+opening bug's own three wrong theories: a plausible, specific, *checkable*
+claim was treated as ground truth until it was actually checked. The
+difference here is only that the claims were the task's own stated
+premises, not a theory formed mid-investigation — which is exactly why the
+migration was structured with explicit gates (G1/G2/G3 in
+`MCP_INTEGRATION.md`) that call for stopping and documenting a contract
+mismatch rather than improvising past it. Both mismatches found here were
+below the STOP-gate threshold (fixable in minutes, not architecture-level
+mismatches) and are simply logged instead.
+
+**The general rule.** A migration brief's "verified by a prior probe" or
+"ADK depends on it" is a claim about the state of the world at the time it
+was written, not a warranty. The fix in both cases was the same move as
+every "observed, not self-reported" entry above, just applied to planning
+documents instead of agent trajectories: `pip show`, not "the brief said
+so"; the dispatcher's own source, not the brief's performance note.
+
+---
+
 ## Additional questions worth answering cold
 
 7. Why is "observed, not self-reported" the design rule for guards — and which

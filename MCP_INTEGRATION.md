@@ -251,6 +251,38 @@ Read from source (`venv/lib/python3.11/site-packages/mcp/client/`):
   needed as a result — the earlier assumption that ~50-email bulk fetches
   might need serialization doesn't apply to this SDK version.
 
+## Allowlist verification (`scripts/mcp_verify.py`)
+
+Run without authentication (`tools/list` needs none). Actual output on this
+machine, confirming `WORKSPACE_FEATURE_OVERRIDES` narrows the 57-tool
+default surface down to gmail.read + sheets.read + the always-on `time.*`
+and `auth.*` tools:
+
+```
+[mcp_verify] 12 tools survived the allowlist:
+  auth_clear
+  auth_refreshToken
+  gmail_downloadAttachment
+  gmail_get
+  gmail_listLabels
+  gmail_search
+  sheets_getMetadata
+  sheets_getRange
+  sheets_getText
+  time_getCurrentDate
+  time_getCurrentTime
+  time_getTimeZone
+[mcp_verify] PASSED: allowlist took effect server-side.
+```
+
+Note `gmail_listLabels` survives - it's part of `gmail.read`, not
+`gmail.write`, contrary to what FINDINGS.md's scope table's parenthetical
+("`gmail.modify` covers send/createDraft/sendDraft/labels/modify/
+batchModify") suggested before actually listing the tools. Harmless either
+way (it's a read-only tool - listing label names, not applying them), but
+recorded here since it's a case where running the check beat trusting the
+inference from source.
+
 ## Kill-switch summary
 
 | Flag | Default | `"0"` reverts to |
