@@ -1,15 +1,14 @@
 import json
-import os
 import re
 import time
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Any
 
-import google.genai as genai
 from google.genai import types
 
 from auth import get_gmail_service
+from tools.genai_client import get_genai_client
 from tools.get_email_detail import get_email_detail
 from tools.search_email_ids import get_last_search_range
 
@@ -343,7 +342,7 @@ def _classify_intent(subject: str, body: str) -> dict:
             judge by the email's primary purpose, not by whether the word
             "feedback" appears anywhere in it.
     """
-    client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+    client = get_genai_client()
 
     prompt = f"""Judge this email's relationship to a job application the
 recipient submitted.

@@ -1,8 +1,8 @@
 import json
-import os
 
-import google.genai as genai
 from google.genai import types
+
+from tools.genai_client import get_genai_client
 
 
 def classify_email(email: dict) -> dict:
@@ -23,7 +23,7 @@ def classify_email(email: dict) -> dict:
     subject = email.get("subject", "")
     print(f"[classify_email] {subject[:60]}")
 
-    client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+    client = get_genai_client()
 
     body_text = email.get("body") or email.get("snippet", "")
 

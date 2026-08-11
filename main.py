@@ -1,5 +1,4 @@
 import asyncio
-import os
 import sys
 
 from google.adk.runners import Runner
@@ -8,6 +7,7 @@ from google.genai import types
 
 from agent import root_agent
 from auth import initialize_gmail_service
+from tools.genai_client import has_valid_genai_config
 
 APP_NAME = "agents"
 USER_ID = "user"
@@ -58,8 +58,13 @@ async def run_agent():
 
 
 def main() -> None:
-    if not os.environ.get("GOOGLE_API_KEY"):
-        print("Error: GOOGLE_API_KEY environment variable is not set.")
+    if not has_valid_genai_config():
+        print(
+            "Error: no valid Gemini client configuration found. Set either:\n"
+            "  - GOOGLE_API_KEY (Gemini Developer API), or\n"
+            "  - GOOGLE_GENAI_USE_VERTEXAI=true plus GOOGLE_CLOUD_PROJECT and "
+            "GOOGLE_CLOUD_LOCATION (Vertex AI)"
+        )
         sys.exit(1)
 
     print("Initializing Gmail authentication...")

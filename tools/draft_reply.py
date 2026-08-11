@@ -1,6 +1,4 @@
-import os
-
-import google.genai as genai
+from tools.genai_client import get_genai_client
 
 
 def draft_reply(email: dict, intent: str) -> dict:
@@ -18,7 +16,7 @@ def draft_reply(email: dict, intent: str) -> dict:
     Returns:
         A dict with key 'draft' containing the suggested reply body text.
     """
-    client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+    client = get_genai_client()
 
     body_text = email.get("body") or email.get("snippet", "")
 

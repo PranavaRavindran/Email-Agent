@@ -25,7 +25,7 @@ ignore_missing_imports = true
 # than as `tools.*`; mypy has no equivalent runtime sys.path hook, so these
 # are unresolvable without duplicating tools/ onto mypy's own search path
 # (which conflicts with the `tools.*` package mypy already sees from root).
-module = ["get_email_detail", "write_to_sheet", "find_application_date"]
+module = ["get_email_detail", "write_to_sheet", "find_application_date", "genai_client"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

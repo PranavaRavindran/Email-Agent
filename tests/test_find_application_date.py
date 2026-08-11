@@ -1199,7 +1199,7 @@ class TestClassifyIntentRetry:
 
         monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
         fake_client = _FakeClient(side_effects)
-        monkeypatch.setattr(fad.genai, "Client", lambda api_key: fake_client)
+        monkeypatch.setattr(fad, "get_genai_client", lambda: fake_client)
         monkeypatch.setattr(fad.time, "sleep", lambda seconds: None)
         return fake_client
 
