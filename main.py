@@ -62,8 +62,9 @@ def main() -> None:
         print(
             "Error: no valid Gemini client configuration found. Set either:\n"
             "  - GOOGLE_API_KEY (Gemini Developer API), or\n"
-            "  - GOOGLE_GENAI_USE_VERTEXAI=true plus GOOGLE_CLOUD_PROJECT and "
-            "GOOGLE_CLOUD_LOCATION (Vertex AI)"
+            "  - GOOGLE_GENAI_USE_ENTERPRISE=true (preferred; "
+            "GOOGLE_GENAI_USE_VERTEXAI=true is the older alias) plus "
+            "GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION (Vertex AI)"
         )
         sys.exit(1)
 

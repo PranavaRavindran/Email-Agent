@@ -1,20 +1,56 @@
 import os
+import warnings
 
 import google.genai as genai
 
+_ENTERPRISE_ENV_VAR = "GOOGLE_GENAI_USE_ENTERPRISE"
 _VERTEXAI_ENV_VAR = "GOOGLE_GENAI_USE_VERTEXAI"
 _PROJECT_ENV_VAR = "GOOGLE_CLOUD_PROJECT"
 _LOCATION_ENV_VAR = "GOOGLE_CLOUD_LOCATION"
 _API_KEY_ENV_VAR = "GOOGLE_API_KEY"
 
 
+def _parse_flag(name: str) -> bool | None:
+    """Parses one mode env var, matching google-genai's own parsing exactly
+    (installed package, google/genai/_api_client.py:620-621,624-625:
+    `env_..._str.lower() in ['true', '1']`). Returns None when the var is
+    unset at all - as opposed to False - because that distinction is what
+    the precedence rule in _vertexai_enabled() below depends on."""
+    raw = os.environ.get(name)
+    return None if raw is None else raw.lower() in ("true", "1")
+
+
 def _vertexai_enabled() -> bool:
     """Whether Vertex mode is selected, matching google-genai's own
-    GOOGLE_GENAI_USE_VERTEXAI parsing exactly (see the installed package,
-    google/genai/_api_client.py: `env_vertexai_str.lower() in ['true', '1']`),
-    so this factory and the underlying SDK never disagree about which mode
-    is selected."""
-    return os.environ.get(_VERTEXAI_ENV_VAR, "").lower() in ("true", "1")
+    precedence exactly (installed package, google/genai/_api_client.py:
+    627-641): both GOOGLE_GENAI_USE_ENTERPRISE and GOOGLE_GENAI_USE_VERTEXAI
+    are read; if both are set to conflicting values, GOOGLE_GENAI_USE_ENTERPRISE
+    wins and a warning is emitted; otherwise ENTERPRISE is used if set, else
+    VERTEXAI if set, else Vertex mode is off.
+
+    This duplicates the SDK's own env parsing instead of just passing
+    vertexai=None and letting the SDK decide, because the SDK only consults
+    the env vars when the `vertexai` kwarg is not explicitly passed
+    (_api_client.py:615, `if self.vertexai is None:`). Our API-key branch
+    below passes api_key= explicitly, which requires us to also pass an
+    explicit vertexai= value - so we must resolve the same precedence
+    ourselves to stay in agreement with what the SDK would have chosen.
+    """
+    enterprise = _parse_flag(_ENTERPRISE_ENV_VAR)
+    vertexai = _parse_flag(_VERTEXAI_ENV_VAR)
+
+    if enterprise is not None and vertexai is not None and enterprise != vertexai:
+        warnings.warn(
+            f"Both {_ENTERPRISE_ENV_VAR} and {_VERTEXAI_ENV_VAR} are set with "
+            f"conflicting values. The value of {_ENTERPRISE_ENV_VAR} will be used.",
+            stacklevel=2,
+        )
+
+    if enterprise is not None:
+        return enterprise
+    if vertexai is not None:
+        return vertexai
+    return False
 
 
 def get_genai_client() -> genai.Client:
