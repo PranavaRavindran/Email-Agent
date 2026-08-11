@@ -740,6 +740,71 @@ so"; the dispatcher's own source, not the brief's performance note.
 
 ---
 
+### 29. Pending-write persistence moved from disk to ADK session state
+
+Not a bug — a deployability change, recorded here for the same reason as
+#28: it changes an observable behavior on purpose, and it depended on a
+checkable claim about ADK internals that was verified before writing any
+code rather than assumed.
+
+**What changed.** `stage_write` and `commit_write` used to hand off the
+staged diff via `pending_write.json` on local disk. Deployed to Cloud Run
+(see `DEPLOYMENT.md`), containers are interchangeable and ephemeral — the
+container that serves the confirm turn is not guaranteed to be the one
+that wrote the file, or even to have a writable disk shared with it at
+all. Both tools now take an injected `tool_context: ToolContext` and store
+the identical payload under `tool_context.state["pending_write"]` instead,
+scoped to the ADK session rather than a filesystem path.
+
+**Accepted behavior change: session state does not survive a process
+restart, and the old file did (for up to the 1-hour staleness window).**
+`main.py` creates one `InMemorySessionService` session per `run_agent()`
+call, reused across every turn of that run's while-loop — so stage and
+confirm still work exactly as before as long as they're two turns of the
+*same running process*. What no longer works is staging, then killing and
+restarting the process, then confirming — that scenario now reports "no
+pending write found" instead of finding a stale-but-present file. This is
+judged an acceptable trade: process-restart-mid-confirmation was never a
+supported workflow so much as an accident of where the file happened to
+live, and the alternative (a durable, multi-instance-safe store) is real
+infrastructure this project doesn't have a deployment need for yet.
+
+**The checkable claim, verified before proceeding.** The instruction to
+make this change was explicit that it depended on one fact holding:
+`tool_context` parameters are excluded from the JSON schema ADK sends the
+model, so adding one to a write tool's signature can't hand the model (or
+anything spoofing a tool call) a new lever over what gets written. This
+was not taken on faith. Reading the installed ADK package directly
+(`venv/lib/python3.11/site-packages/google/adk/tools/function_tool.py` and
+`_automatic_function_calling_util.py`) showed the exclusion happens on
+both declaration paths this ADK version can build — `FunctionTool` collects
+the context parameter's name into an `ignore_params` list before ever
+calling `build_function_declaration`, which threads that list into both
+the pydantic-schema path (pops the key out of the fields dict) and the
+JSON-schema path (filters it out of the parameter list it builds). A
+matching guard on the *other* side was also found: a `ToolContext`-typed
+parameter not literally named `tool_context` raises `ValueError` at
+declaration time, so a rename typo fails loudly at startup instead of
+silently leaking the parameter into the schema. Full file:line evidence is
+in the commit message for "Move pending write from file to ADK session
+state." Same shape as #28's two disproven premises: a specific, checkable
+claim, verified by reading the actual dependency instead of trusting the
+instruction that stated it.
+
+**Why pytest couldn't be the last word here.** Both `stage_write` and
+`commit_write` changed model-facing signatures (well, one parameter added
+to each, immediately excluded per above) — but pytest never runs the ADK
+schema-building code path at all, only the plain Python functions
+directly. The unit tests in this change (a fake `ToolContext` backed by a
+plain dict) prove the state read/write logic is correct; they cannot prove
+the model still sees the same two-argument-then-zero-argument tool
+surface it saw before. That requires `adk eval` against the real
+declaration path, which is why this change is flagged as needing eval
+verification before merge rather than being called complete on pytest
+alone.
+
+---
+
 ## Additional questions worth answering cold
 
 7. Why is "observed, not self-reported" the design rule for guards — and which
@@ -752,3 +817,6 @@ so"; the dispatcher's own source, not the brief's performance note.
     conflicting instructions resolve?
 11. Why can a rubric and a reference response both encode the same taxonomy
     and still drift out of sync with each other?
+12. Why does `tool_context` need to be excluded from the model-facing schema
+    for stage_write/commit_write's state migration to be safe, and how was
+    that confirmed rather than assumed?

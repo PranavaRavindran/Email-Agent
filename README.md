@@ -70,9 +70,10 @@ rate-limit failures.
 
 **`stage_write` and `commit_write` are separate tools.** `stage_write` resolves
 entries against the sheet, computes a diff, and persists the resolved plan to
-`pending_write.json` without writing anything. `commit_write` takes **no
-arguments** — it applies the persisted plan. Nothing large passes back through
-the model between turns, so what you approve is what gets written.
+ADK session state without writing anything. `commit_write` takes **no
+model-facing arguments** — it applies the persisted plan. Nothing large passes
+back through the model between turns, so what you approve is what gets
+written.
 
 ---
 
@@ -263,6 +264,15 @@ raw API path this project has always used.
    python scripts/mcp_smoke.py <a-gmail-message-id>
    ```
 
+### Running this somewhere other than a local machine
+
+The setup above assumes one interactive process on one machine with a
+browser. See `DEPLOYMENT.md` for the four things that assumption breaks in
+a deployed environment — pending-write persistence, headless auth, Vertex
+AI instead of an API key, and the MCP integration's stdio/Node/Keychain
+coupling — how each is handled, and the full environment variable matrix
+for local vs. deployed.
+
 ---
 
 ## Project layout
@@ -287,6 +297,7 @@ tools/
   classify_email.py
   draft_reply.py
   write_to_sheet.py         normalisation, matching, staging, commit
+  genai_client.py           shared Gemini client factory (API key or Vertex)
   mcp_client.py             MCP stdio client for the Workspace MCP server
 
 scripts/
@@ -297,6 +308,7 @@ tests/                      pytest unit tests
 evals/                      ADK evaluation cases, one subdirectory per case
 eval_agent/                 thin wrapper exposing root_agent to `adk eval`
 MCP_INTEGRATION.md          MCP server architecture, gates, dual-auth model
+DEPLOYMENT.md               portability blockers and env var matrix for deployment
 ```
 
 ---
