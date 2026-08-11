@@ -20,6 +20,17 @@ _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 _CREDENTIALS_FILE = os.path.join(_BASE_DIR, "credentials.json")
 _TOKEN_FILE = os.path.join(_BASE_DIR, "token.pickle")
 
+_TOKEN_PATH_ENV_VAR = "GOOGLE_TOKEN_PATH"
+
+_HEADLESS_AUTH_ERROR = (
+    "HEADLESS=1 but no valid Google credentials are available at '{token_path}' "
+    "({reason}). Headless mode never opens a browser or waits for a human, so it "
+    "fails immediately instead of hanging. Fix: reauthorize locally with HEADLESS "
+    "unset or 0 (this runs the interactive browser flow once and rewrites the "
+    "token file), then make the resulting token available to this environment at "
+    "the path " + _TOKEN_PATH_ENV_VAR + " points to."
+)
+
 _service: GmailService | None = None
 _service_lock = threading.Lock()
 _thread_local = threading.local()
@@ -60,19 +71,35 @@ def initialize_gmail_service() -> GmailService:
 
 
 def _build_service() -> GmailService:
+    # Read at call time, not import time, so tests and deployments can set
+    # these without reimporting the module.
+    headless = os.environ.get("HEADLESS", "0") == "1"
+    token_path = os.environ.get(_TOKEN_PATH_ENV_VAR, _TOKEN_FILE)
     creds = None
 
-    if os.path.exists(_TOKEN_FILE):
-        with open(_TOKEN_FILE, "rb") as f:
+    if os.path.exists(token_path):
+        with open(token_path, "rb") as f:
             creds = pickle.load(f)
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                if headless:
+                    raise RuntimeError(
+                        _HEADLESS_AUTH_ERROR.format(
+                            token_path=token_path, reason=f"silent refresh failed: {e}"
+                        )
+                    ) from e
+                raise
+        elif headless:
+            reason = "no token file found" if creds is None else "token present but not refreshable"
+            raise RuntimeError(_HEADLESS_AUTH_ERROR.format(token_path=token_path, reason=reason))
         else:
             flow = InstalledAppFlow.from_client_secrets_file(_CREDENTIALS_FILE, SCOPES)
             creds = flow.run_local_server(port=0)
-        with open(_TOKEN_FILE, "wb") as f:
+        with open(token_path, "wb") as f:
             pickle.dump(creds, f)
 
     return build("gmail", "v1", credentials=creds)
