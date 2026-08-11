@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import write_to_sheet as wts
@@ -11,6 +12,19 @@ from write_to_sheet import (
     _validate_entry,
     preview_resolve,
 )
+
+
+class _FakeToolContext:
+    """Minimal stand-in for google.adk.tools.ToolContext.
+
+    write_to_sheet only ever does state[key] = value, state.get(key), and
+    `key in state` against tool_context.state, and a plain dict supports all
+    three - so these tests never need to construct a real ADK State/Session.
+    """
+
+    def __init__(self):
+        self.state = {}
+
 
 # ---------------------------------------------------------------------------
 # _normalize
@@ -593,3 +607,142 @@ class TestReadExistingRows:
         rows = wts._read_existing_rows(_FakeSheetsService())
 
         assert rows == [["2026-06-01", "Acme", "Eng", "", "Email", "Applied"]]
+
+
+# ---------------------------------------------------------------------------
+# stage_write / commit_write - ADK session-state seam (Fix 1)
+#
+# The pending write used to persist to pending_write.json; it now persists to
+# tool_context.state[_PENDING_WRITE_STATE_KEY]. There were no pre-existing
+# tests exercising stage_write/commit_write's persistence directly (only the
+# lower-level helpers above were covered), so this section is new coverage
+# for that seam rather than an adaptation of prior assertions.
+# ---------------------------------------------------------------------------
+
+
+class TestStageWriteSessionState:
+    def test_empty_entries_returns_error_and_does_not_touch_state(self):
+        tool_context = _FakeToolContext()
+
+        result = wts.stage_write([], tool_context)
+
+        assert "error" in result
+        assert wts._PENDING_WRITE_STATE_KEY not in tool_context.state
+
+    @patch("write_to_sheet._resolve")
+    @patch("write_to_sheet._merge_duplicates")
+    @patch("write_to_sheet._resolve_dates")
+    @patch("write_to_sheet.get_last_search_range")
+    @patch("write_to_sheet.get_fetched_ids")
+    @patch("write_to_sheet.get_last_search_count")
+    def test_stores_pending_payload_under_the_state_key(
+        self,
+        mock_searched,
+        mock_fetched,
+        mock_range,
+        mock_resolve_dates,
+        mock_merge,
+        mock_resolve,
+    ):
+        mock_searched.return_value = 0
+        mock_fetched.return_value = set()
+        mock_range.return_value = ("", "")
+        mock_resolve_dates.side_effect = lambda entries: entries
+        mock_merge.side_effect = lambda entries: (entries, [])
+        mock_resolve.return_value = {
+            "sheets_service": None,
+            "entries": [_entry()],
+            "updates": [{"range": "Tracker!F3", "values": [["Rejected"]]}],
+            "rows_to_append": [],
+            "last_data_row": 3,
+            "new_rows": [],
+            "status_changes": [
+                {
+                    "company": "Acme Corp",
+                    "role": "Software Engineer",
+                    "old_status": "Applied",
+                    "new_status": "Rejected",
+                }
+            ],
+            "unchanged_count": 0,
+            "unseen_rows": [],
+        }
+        tool_context = _FakeToolContext()
+
+        result = wts.stage_write([_entry()], tool_context)
+
+        assert result["has_changes"] is True
+        pending = tool_context.state[wts._PENDING_WRITE_STATE_KEY]
+        assert pending["updates"] == [{"range": "Tracker!F3", "values": [["Rejected"]]}]
+        assert pending["rows_to_append"] == []
+        assert pending["last_data_row"] == 3
+        assert "staged_at" in pending
+
+
+class TestCommitWriteSessionState:
+    def test_no_pending_state_returns_error(self):
+        tool_context = _FakeToolContext()
+
+        result = wts.commit_write(tool_context)
+
+        assert result == {"error": "No pending write found. Call stage_write before commit_write."}
+
+    def test_cleared_pending_state_is_treated_as_absent(self):
+        # After a prior commit, the key is set to None (State has no delete) -
+        # this must be rejected exactly like a key that was never staged.
+        tool_context = _FakeToolContext()
+        tool_context.state[wts._PENDING_WRITE_STATE_KEY] = None
+
+        result = wts.commit_write(tool_context)
+
+        assert result == {"error": "No pending write found. Call stage_write before commit_write."}
+
+    def test_stale_pending_state_is_rejected_exactly_as_the_file_was(self):
+        tool_context = _FakeToolContext()
+        stale_staged_at = datetime.now(UTC) - timedelta(hours=1, minutes=1)
+        tool_context.state[wts._PENDING_WRITE_STATE_KEY] = {
+            "entries": [],
+            "updates": [],
+            "rows_to_append": [],
+            "last_data_row": 2,
+            "staged_at": stale_staged_at.isoformat(),
+            "diff": {},
+        }
+
+        result = wts.commit_write(tool_context)
+
+        assert result == {
+            "error": "The pending write is stale (staged more than 1 hour ago) "
+            "and should be re-staged."
+        }
+        # A stale rejection must not clear the state - re-staging overwrites it.
+        assert tool_context.state[wts._PENDING_WRITE_STATE_KEY] is not None
+
+    @patch("write_to_sheet._apply")
+    @patch("write_to_sheet.build")
+    @patch("write_to_sheet.get_gmail_service")
+    def test_applies_pending_state_and_clears_it_after(
+        self, mock_get_service, mock_build, mock_apply
+    ):
+        mock_apply.return_value = {"rows_added": 1, "rows_updated": 1}
+        tool_context = _FakeToolContext()
+        pending = {
+            "entries": [_entry()],
+            "updates": [{"range": "Tracker!F3", "values": [["Rejected"]]}],
+            "rows_to_append": [["2026-06-01", "Acme", "Eng", "", "Email", "Applied"]],
+            "last_data_row": 4,
+            "staged_at": datetime.now(UTC).isoformat(),
+            "diff": {},
+        }
+        tool_context.state[wts._PENDING_WRITE_STATE_KEY] = pending
+
+        result = wts.commit_write(tool_context)
+
+        assert result == {"rows_added": 1, "rows_updated": 1}
+        mock_apply.assert_called_once_with(
+            mock_build.return_value,
+            pending["updates"],
+            pending["rows_to_append"],
+            pending["last_data_row"],
+        )
+        assert tool_context.state[wts._PENDING_WRITE_STATE_KEY] is None

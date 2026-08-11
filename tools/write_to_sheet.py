@@ -3,6 +3,7 @@ import os
 import re
 from datetime import UTC, datetime, timedelta
 
+from google.adk.tools import ToolContext
 from googleapiclient.discovery import build
 
 from auth import get_gmail_service
@@ -21,9 +22,7 @@ _SPREADSHEET_ID = "1NlX-ND9UIQkalliOqsw4eb9ItcMNllo-dkuEwWzvI3g"
 _READ_RANGE = "Tracker!A3:F"
 _FIRST_DATA_ROW = 3
 
-_PENDING_WRITE_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pending_write.json"
-)
+_PENDING_WRITE_STATE_KEY = "pending_write"
 
 _RUN_LOG_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "run_log.jsonl"
@@ -634,7 +633,7 @@ def preview_resolve(entries: list[dict]) -> dict:
     }
 
 
-def stage_write(entries: list[dict]) -> dict:
+def stage_write(entries: list[dict], tool_context: ToolContext) -> dict:
     """Validates and resolves job application entries against the Tracker
     sheet and stages the result for confirmation, without writing anything to
     the sheet yet.
@@ -647,16 +646,22 @@ def stage_write(entries: list[dict]) -> dict:
 
     Args:
         entries: List of dicts, each with keys: date, company, role, source, status.
+        tool_context: Injected by ADK; excluded from the model-facing schema.
+            The staged payload is stored under tool_context.state, which is
+            shared across turns of the same ADK session. The confirming
+            commit_write call happens in a later turn of that same session,
+            not a separate process - unlike the old pending_write.json file,
+            this does NOT survive a process restart. See ENGINEERING_LOG.md.
 
     Returns:
         A dict with new_rows_count, status_changes_count, unchanged_count, the
         details of new_rows and status_changes (but not the unchanged entries
         themselves), duplicates_in_batch, unseen_rows, invalid_entries, and a
         has_changes flag. If entries is empty, returns an error dict instead
-        and does not write pending_write.json. If a search was run but fewer
-        emails were fetched than were searched, or more entries were provided
-        than emails were read, returns an error dict instead and stages
-        nothing, since entries could not have been derived from email
+        and does not stage anything in session state. If a search was run but
+        fewer emails were fetched than were searched, or more entries were
+        provided than emails were read, returns an error dict instead and
+        stages nothing, since entries could not have been derived from email
         content.
     """
     if not entries:
@@ -748,8 +753,7 @@ def stage_write(entries: list[dict]) -> dict:
             "invalid_entries": invalid_entries,
         },
     }
-    with open(_PENDING_WRITE_PATH, "w") as f:
-        json.dump(pending, f, indent=2)
+    tool_context.state[_PENDING_WRITE_STATE_KEY] = pending
 
     print(
         f"[stage_write] {len(new_rows)} new, {len(status_changes)} status changes, "
@@ -783,24 +787,27 @@ def stage_write(entries: list[dict]) -> dict:
     }
 
 
-def commit_write() -> dict:
+def commit_write(tool_context: ToolContext) -> dict:
     """Writes the plan staged by the last stage_write call to the Tracker
     sheet exactly as it was resolved and presented for confirmation, then
-    deletes the staged file.
+    clears the staged state.
 
     Does NOT recompute the plan - it applies the updates and rows_to_append
     persisted by stage_write, so the write is guaranteed to match the diff the
     user approved even if the sheet has changed since staging.
 
+    Args:
+        tool_context: Injected by ADK; excluded from the model-facing schema.
+            Takes no other arguments - the plan to apply comes entirely from
+            the payload stage_write stored in tool_context.state.
+
     Returns:
         A dict with rows_added and rows_updated, or an error dict if nothing
         is currently staged or the staged write is stale.
     """
-    if not os.path.exists(_PENDING_WRITE_PATH):
+    pending = tool_context.state.get(_PENDING_WRITE_STATE_KEY)
+    if not pending:
         return {"error": "No pending write found. Call stage_write before commit_write."}
-
-    with open(_PENDING_WRITE_PATH) as f:
-        pending = json.load(f)
 
     staged_at = datetime.fromisoformat(pending["staged_at"])
     age = datetime.now(UTC) - staged_at
@@ -820,6 +827,6 @@ def commit_write() -> dict:
         pending["last_data_row"],
     )
 
-    os.remove(_PENDING_WRITE_PATH)
+    tool_context.state[_PENDING_WRITE_STATE_KEY] = None
 
     return result
