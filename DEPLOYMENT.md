@@ -98,10 +98,16 @@ where ADC is the natural credential source.
 **How it's handled.** All three call sites now go through one factory,
 `tools/genai_client.get_genai_client()`:
 
-- `GOOGLE_GENAI_USE_VERTEXAI` true/1 (matched case-insensitively, identical
+- `GOOGLE_GENAI_USE_ENTERPRISE` true/1 (matched case-insensitively, identical
   to the installed `google-genai` SDK's own parsing) → Vertex-mode client
   built from `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION`, no
-  `api_key`.
+  `api_key`. This is the **preferred** flag.
+- `GOOGLE_GENAI_USE_VERTEXAI` is a **compatibility alias** for the same
+  thing, honored the same way. If both are set to conflicting values,
+  `GOOGLE_GENAI_USE_ENTERPRISE` wins and a warning is emitted — this
+  mirrors the installed `google-genai` SDK's own precedence between the two
+  env vars exactly, so this factory and the underlying SDK never disagree
+  about which mode is selected.
 - Otherwise → the original API-key client, unchanged.
 
 `main.py`'s startup check now calls `has_valid_genai_config()`, which
@@ -171,10 +177,11 @@ this pass.
 |---|---|---|---|
 | `HEADLESS` | unset (`0`) | `1` | Blocker #2. Never opens a browser when `1`; fails loudly instead. |
 | `GOOGLE_TOKEN_PATH` | unset → `token.pickle` in repo root | path to a pre-authorized token (mounted secret/volume) | Blocker #2. Must exist and be valid *before* the process starts when `HEADLESS=1` — there is no way to mint it interactively in that mode. |
-| `GOOGLE_API_KEY` | set (Gemini Developer API) | unset if using Vertex | Blocker #3. Required unless `GOOGLE_GENAI_USE_VERTEXAI=true`. |
-| `GOOGLE_GENAI_USE_VERTEXAI` | unset | `true` (if using Vertex) | Blocker #3. Switches all three Gemini call sites to Vertex mode. |
-| `GOOGLE_CLOUD_PROJECT` | unset | required if `GOOGLE_GENAI_USE_VERTEXAI=true` | Blocker #3. Vertex AI API must be enabled on this project. |
-| `GOOGLE_CLOUD_LOCATION` | unset | required if `GOOGLE_GENAI_USE_VERTEXAI=true` | Blocker #3, e.g. `us-central1`. |
+| `GOOGLE_API_KEY` | set (Gemini Developer API) | **must be unset in Vertex mode** | Blocker #3. Required unless in Vertex mode. If set alongside an explicit Vertex-mode `api_key` path and env project/location, the SDK silently discards `GOOGLE_CLOUD_PROJECT`/`GOOGLE_CLOUD_LOCATION` and falls back to Vertex express mode — see `_api_client.py:702-709` in the installed `google-genai` package. |
+| `GOOGLE_GENAI_USE_ENTERPRISE` | unset | `true` (if using Vertex) | Blocker #3. **Preferred** flag; switches all three Gemini call sites to Vertex mode. Wins on conflict with `GOOGLE_GENAI_USE_VERTEXAI`. |
+| `GOOGLE_GENAI_USE_VERTEXAI` | unset | `true` (if using Vertex, older alias) | Blocker #3. Compatibility alias for `GOOGLE_GENAI_USE_ENTERPRISE`; same effect when set alone. |
+| `GOOGLE_CLOUD_PROJECT` | unset | required in Vertex mode | Blocker #3. Vertex AI API must be enabled on this project. |
+| `GOOGLE_CLOUD_LOCATION` | unset | required in Vertex mode | Blocker #3, e.g. `us-central1`. |
 | `USE_MCP_GMAIL` | unset (`1`, MCP on) | `0` | Blocker #4. MCP path is not container-portable; revert to raw API. |
 | `USE_MCP_SHEETS` | unset (`1`, MCP on) | `0` | Blocker #4. Same reason. |
 | `WORKSPACE_MCP_DIR` | unset → `~/.workspace-mcp` | irrelevant once `USE_MCP_GMAIL`/`USE_MCP_SHEETS` are both `0` | Only read when the MCP path is active. |
