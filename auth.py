@@ -1,5 +1,6 @@
 import os
 import pickle
+import tempfile
 import threading
 from typing import Any
 
@@ -78,6 +79,39 @@ def initialize_gmail_service() -> GmailService:
     return _service
 
 
+def _save_credentials(creds: Any, token_path: str) -> None:
+    """Persist credentials atomically so no reader ever sees a partial file.
+
+    A plain open(token_path, "wb") truncates the target before writing, so
+    every refresh passes the file through a zero-byte state; any interruption
+    in that window destroys the refresh token and forces interactive re-auth.
+    Serialize to a temp file in the same directory (os.replace is only atomic
+    within one filesystem), fsync it so the bytes are on disk, then swap it
+    in. The token is a credential: an existing target's permission mode is
+    preserved, and a brand-new file keeps mkstemp's owner-only 0o600.
+    """
+    directory = os.path.dirname(token_path) or "."
+    try:
+        mode = os.stat(token_path).st_mode & 0o777
+    except FileNotFoundError:
+        mode = None
+    fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".token-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            pickle.dump(creds, f)
+            f.flush()
+            os.fsync(f.fileno())
+        if mode is not None:
+            os.chmod(tmp_path, mode)
+        os.replace(tmp_path, token_path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def _build_service() -> GmailService:
     # Read at call time, not import time, so tests and deployments can set
     # these without reimporting the module.
@@ -130,7 +164,6 @@ def _build_service() -> GmailService:
         else:
             flow = InstalledAppFlow.from_client_secrets_file(_CREDENTIALS_FILE, SCOPES)
             creds = flow.run_local_server(port=0)
-        with open(token_path, "wb") as f:
-            pickle.dump(creds, f)
+        _save_credentials(creds, token_path)
 
     return build("gmail", "v1", credentials=creds)

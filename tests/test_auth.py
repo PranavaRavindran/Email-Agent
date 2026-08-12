@@ -1,3 +1,5 @@
+import os
+import pickle
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -166,8 +168,6 @@ class TestCorruptTokenFile:
         mock_build.assert_not_called()
 
     def test_valid_pickle_of_wrong_type_raises_actionable_error(self, monkeypatch, tmp_path):
-        import pickle
-
         token_path = tmp_path / "token.pickle"
         token_path.write_bytes(pickle.dumps({"access_token": "not-a-credentials-object"}))
         monkeypatch.delenv("HEADLESS", raising=False)
@@ -293,10 +293,14 @@ class TestHeadlessUnsetPreservesCurrentBehavior:
         monkeypatch.delenv("HEADLESS", raising=False)
         monkeypatch.delenv("GOOGLE_TOKEN_PATH", raising=False)
 
+        # _save_credentials must be patched out entirely, not just
+        # pickle.dump: this is the one test that resolves to the REAL
+        # repo token.pickle, and any real write here clobbers a live
+        # credential (it zeroed the actual token file twice on 2026-08-11).
         with patch("auth.os.path.exists", return_value=False) as mock_exists:
             with (
                 patch("auth.InstalledAppFlow") as mock_flow_cls,
-                patch("auth.pickle.dump"),
+                patch("auth._save_credentials"),
                 patch("auth.build"),
             ):
                 mock_flow_cls.from_client_secrets_file.return_value.run_local_server.return_value = _fake_creds(
@@ -305,3 +309,53 @@ class TestHeadlessUnsetPreservesCurrentBehavior:
                 auth._build_service()
 
         mock_exists.assert_called_once_with(auth._TOKEN_FILE)
+
+
+class TestAtomicTokenWrite:
+    """_save_credentials must never let the token file pass through a
+    partial or empty state - the writer-side counterpart of the corrupt-
+    token READER check above. The old open(path, "wb") truncated the
+    target before writing, so every refresh exposed a zero-byte window."""
+
+    def test_successful_write_produces_loadable_file(self, tmp_path):
+        token_path = tmp_path / "token.pickle"
+
+        auth._save_credentials({"refresh_token": "rt-123"}, str(token_path))
+
+        with open(token_path, "rb") as f:
+            assert pickle.load(f) == {"refresh_token": "rt-123"}
+
+    def test_no_temp_file_remains_after_successful_write(self, tmp_path):
+        token_path = tmp_path / "token.pickle"
+
+        auth._save_credentials({"refresh_token": "rt-123"}, str(token_path))
+
+        assert os.listdir(tmp_path) == ["token.pickle"]
+
+    def test_failed_serialization_leaves_original_file_intact(self, tmp_path):
+        # The property the atomic write exists to provide: a crash midway
+        # through serialization must not destroy the existing credential.
+        token_path = tmp_path / "token.pickle"
+        original = {"refresh_token": "still-good"}
+        token_path.write_bytes(pickle.dumps(original))
+
+        def dump_partial_then_raise(obj, f, *args, **kwargs):
+            f.write(b"partial garbage")
+            raise OSError("disk full mid-serialize")
+
+        with patch("auth.pickle.dump", side_effect=dump_partial_then_raise):
+            with pytest.raises(OSError, match="disk full"):
+                auth._save_credentials({"refresh_token": "new"}, str(token_path))
+
+        with open(token_path, "rb") as f:
+            assert pickle.load(f) == original
+        assert os.listdir(tmp_path) == ["token.pickle"]
+
+    def test_existing_permission_mode_is_preserved(self, tmp_path):
+        token_path = tmp_path / "token.pickle"
+        token_path.write_bytes(pickle.dumps({"refresh_token": "old"}))
+        os.chmod(token_path, 0o640)
+
+        auth._save_credentials({"refresh_token": "new"}, str(token_path))
+
+        assert os.stat(token_path).st_mode & 0o777 == 0o640
