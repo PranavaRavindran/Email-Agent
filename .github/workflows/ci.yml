@@ -18,14 +18,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Lint (ruff check)
-        run: ruff check .
-
-      - name: Format check (ruff format)
-        run: ruff format --check .
-
-      - name: Type check (mypy)
-        run: mypy .
-
-      - name: Tests (pytest)
-        run: python -m pytest tests/ -v
+      # The check commands live in scripts/check.sh so local runs and CI
+      # execute the identical list - do not add check steps here.
+      - name: Quality gates (scripts/check.sh)
+        run: ./scripts/check.sh

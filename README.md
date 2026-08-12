@@ -207,6 +207,10 @@ runs), also install `requirements-dev.txt`:
 pip install -r requirements-dev.txt
 ```
 
+Then `./scripts/check.sh` runs every quality gate (lint, format check, mypy,
+pytest) in the same order CI does — CI invokes the same script, so passing it
+locally means CI will pass.
+
 Place your OAuth client secret at `credentials.json` in the project root. Both
 `credentials.json` and the generated `token.pickle` are gitignored and must never
 be committed.
