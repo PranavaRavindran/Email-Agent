@@ -63,8 +63,18 @@ real, locally, as an `invalid_grant` mid-eval.
 `_build_service`, so setting it doesn't require reimporting anything):
 
 - Never calls `run_local_server`, under any circumstance.
-- Loads the cached token from `GOOGLE_TOKEN_PATH` if set, else the existing
-  local `token.pickle` default (unchanged).
+- Loads the cached token from the first available source: the
+  `GOOGLE_TOKEN_JSON` env var if set and non-empty (the credential's
+  authorized-user **JSON as a string** — this is how Agent Runtime delivers
+  secrets, since it offers no file mount), else the JSON token file at
+  `GOOGLE_TOKEN_PATH` if set, else the local `token.json` default. A legacy
+  `token.pickle` found beside a missing JSON token file is migrated to JSON
+  once (the pickle is left in place); the pickle path is unreachable when
+  `GOOGLE_TOKEN_JSON` is set, so injected env content is never unpickled.
+- When the source is `GOOGLE_TOKEN_JSON`, the credential is **read-only**: a
+  silent refresh still happens in memory, but the refreshed token is not
+  persisted anywhere (logged at INFO). File sources persist refreshes
+  atomically, exactly as before.
 - Attempts a silent refresh if a refresh token is present
   (`creds.refresh(Request())` — an HTTP call, no browser, no interactivity).
 - Raises `RuntimeError` immediately, with a message naming the fix, if
@@ -74,14 +84,17 @@ real, locally, as an `invalid_grant` mid-eval.
 
 **What this changes operationally.** This makes the *failure mode* safe
 (loud and immediate instead of an infinite hang) and makes the *token
-source* injectable (a path, via `GOOGLE_TOKEN_PATH`, instead of a hardcoded
-repo-relative file). It does **not** solve token provisioning by itself: a
-deployed instance still needs a valid, already-authorized token made
-available at whatever `GOOGLE_TOKEN_PATH` points to before it starts
-serving traffic. Getting a token onto that path — a mounted secret, a
-volume, a build-time copy — is deployment configuration, deliberately left
-undone here (no Secret Manager or GCS client was added in this pass, per
-the scope of this change).
+source* injectable two ways: a file path via `GOOGLE_TOKEN_PATH`, or the
+credential JSON itself via `GOOGLE_TOKEN_JSON` — the latter being the only
+mechanism Agent Runtime supports (secrets arrive as env-var strings; there
+is no writable filesystem or file mount). It does **not** solve token
+provisioning by itself: a deployed instance still needs a valid,
+already-authorized token minted locally first and wired into one of those
+two sources (e.g. a Secret Manager secret mapped into `GOOGLE_TOKEN_JSON`
+via the runtime's `env_vars` secret reference) before it starts serving
+traffic. That wiring is deployment configuration, deliberately left undone
+here (no Secret Manager or GCS client was added in this pass, per the
+scope of this change).
 
 ---
 
@@ -176,7 +189,8 @@ this pass.
 | Variable | Local (current default) | Deployed | Notes |
 |---|---|---|---|
 | `HEADLESS` | unset (`0`) | `1` | Blocker #2. Never opens a browser when `1`; fails loudly instead. |
-| `GOOGLE_TOKEN_PATH` | unset → `token.pickle` in repo root | path to a pre-authorized token (mounted secret/volume) | Blocker #2. Must exist and be valid *before* the process starts when `HEADLESS=1` — there is no way to mint it interactively in that mode. |
+| `GOOGLE_TOKEN_PATH` | unset → `token.json` in repo root | path to a pre-authorized token **JSON** file (mounted secret/volume) | Blocker #2. Must exist and be valid *before* the process starts when `HEADLESS=1` — there is no way to mint it interactively in that mode. Ignored when `GOOGLE_TOKEN_JSON` is set. A legacy `token.pickle` beside a missing JSON file is auto-migrated once. |
+| `GOOGLE_TOKEN_JSON` | unset | the pre-authorized token's **JSON contents as a string** (e.g. an Agent Runtime `env_vars` secret reference) | Blocker #2. Wins over `GOOGLE_TOKEN_PATH` when set and non-empty. Read-only: refreshed tokens are not persisted (logged at INFO). Deliberately not named `GOOGLE_CLOUD_*` — Agent Runtime reserves that prefix and several exact `GOOGLE_*` names. |
 | `GOOGLE_API_KEY` | set (Gemini Developer API) | **must be unset in Vertex mode** | Blocker #3. Required unless in Vertex mode. If set alongside an explicit Vertex-mode `api_key` path and env project/location, the SDK silently discards `GOOGLE_CLOUD_PROJECT`/`GOOGLE_CLOUD_LOCATION` and falls back to Vertex express mode — see `_api_client.py:702-709` in the installed `google-genai` package. |
 | `GOOGLE_GENAI_USE_ENTERPRISE` | unset | `true` (if using Vertex) | Blocker #3. **Preferred** flag; switches all three Gemini call sites to Vertex mode. Wins on conflict with `GOOGLE_GENAI_USE_VERTEXAI`. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | unset | `true` (if using Vertex, older alias) | Blocker #3. Compatibility alias for `GOOGLE_GENAI_USE_ENTERPRISE`; same effect when set alone. |
@@ -203,7 +217,8 @@ the browser-only auth fallback, and the API-key-only Gemini client are no
 longer hardcoded assumptions.
 
 Not done, and explicitly out of scope for this pass: actually deploying
-anywhere, provisioning a token for `GOOGLE_TOKEN_PATH`, enabling the Vertex
+anywhere, provisioning a token into `GOOGLE_TOKEN_PATH` or
+`GOOGLE_TOKEN_JSON`, enabling the Vertex
 AI API, configuring Cloud Run IAM/ingress, or migrating the MCP
 integration to a remote-capable server. Those are the next, separate body
 of work.

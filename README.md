@@ -212,8 +212,9 @@ pytest) in the same order CI does — CI invokes the same script, so passing it
 locally means CI will pass.
 
 Place your OAuth client secret at `credentials.json` in the project root. Both
-`credentials.json` and the generated `token.pickle` are gitignored and must never
-be committed.
+`credentials.json` and the generated `token.json` are gitignored and must never
+be committed. (Older checkouts may also have a legacy `token.pickle`; it is
+migrated to `token.json` automatically on first run and is gitignored too.)
 
 Set `_SPREADSHEET_ID` in `tools/write_to_sheet.py` to your own sheet. The
 `Tracker` tab expects headers in row 2 (Date, Company, Role, Link, Source,
@@ -227,8 +228,8 @@ First run opens a browser for OAuth consent. Scopes requested are
 `gmail.readonly` and `spreadsheets` — the system can read email and write to
 sheets, and cannot send, modify, or delete mail.
 
-If authentication fails after a long idle period, delete `token.pickle` and
-rerun.
+If authentication fails after a long idle period, delete `token.json` (and any
+leftover `token.pickle`) and rerun.
 
 ### Optional: MCP-backed fetch/read paths
 
@@ -261,7 +262,7 @@ raw API path this project has always used.
 4. One-time, user-run only (never run this from an agent): smoke-test an
    actual `gmail_get` and `sheets_getRange` call. First run opens a browser
    for the MCP server's **own** OAuth consent — separate from this
-   project's `credentials.json`/`token.pickle`, stored in the OS keychain.
+   project's `credentials.json`/`token.json`, stored in the OS keychain.
    Watch the consent screen and confirm it asks for read-only Gmail and
    Sheets access only, then abort if it asks for anything broader:
    ```

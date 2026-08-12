@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 credentials.json
 token.pickle
+token.json
 pending_write.json
 .claude/
 eval_agent/.adk/

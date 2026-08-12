@@ -23,7 +23,8 @@ orchestration:
     the tracker's two-turn confirmation flow. A consequence: a sub-agent
     invoked via AgentTool completes and terminates, so it cannot pause
     mid-invocation and wait for a user answer — any confirmation state must
-    live in root_agent or on disk.
+    live in root_agent or in ADK session state (tool_context.state, where
+    the tracker's staged write is held), never on local disk.
 
 agents:
   - name: root_agent

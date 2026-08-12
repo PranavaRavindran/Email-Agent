@@ -89,7 +89,7 @@ to start and the error will surface through `mcp_call`).
 Tool **calls** trigger the server's own OAuth (Google-hosted client,
 browser consent), token stored in macOS Keychain under service
 `gemini-cli-workspace-oauth`. This is **entirely separate** from this
-project's `credentials.json`/`token.pickle` (used by `auth.py` for the raw
+project's `credentials.json`/`token.json` (used by `auth.py` for the raw
 API paths) — both coexist; nothing in `auth.py` changed. `tools/list`
 requires no auth at all, which is what makes `scripts/mcp_verify.py`
 runnable without triggering consent.
