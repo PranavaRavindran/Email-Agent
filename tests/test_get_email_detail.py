@@ -247,9 +247,7 @@ class TestMCPHtmlBodyNormalization:
                             {"name": "Date", "value": "Tue, 14 Apr 2026 09:00:00 -0400"},
                         ],
                         "mimeType": "text/html",
-                        "body": {
-                            "data": ged.base64.urlsafe_b64encode(html_body.encode()).decode()
-                        },
+                        "body": {"data": ged.base64.urlsafe_b64encode(html_body.encode()).decode()},
                     }
                 }
 

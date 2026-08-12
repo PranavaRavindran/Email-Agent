@@ -108,9 +108,7 @@ class TestGetGenaiClient:
 
         mock_client_cls.assert_called_once_with(api_key="test-api-key")
 
-    def test_enterprise_false_vertexai_true_conflict_uses_api_key_and_warns(
-        self, monkeypatch
-    ):
+    def test_enterprise_false_vertexai_true_conflict_uses_api_key_and_warns(self, monkeypatch):
         monkeypatch.setenv("GOOGLE_GENAI_USE_ENTERPRISE", "false")
         monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
         monkeypatch.setenv("GOOGLE_API_KEY", "test-api-key")

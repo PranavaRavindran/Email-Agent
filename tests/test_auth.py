@@ -135,9 +135,7 @@ class TestCorruptTokenFile:
         assert "delete" in message.lower()
         assert "re-authorize" in message.lower()
 
-    def test_zero_byte_token_raises_actionable_error_not_raw_eoferror(
-        self, monkeypatch, tmp_path
-    ):
+    def test_zero_byte_token_raises_actionable_error_not_raw_eoferror(self, monkeypatch, tmp_path):
         token_path = tmp_path / "token.pickle"
         token_path.write_bytes(b"")
         monkeypatch.delenv("HEADLESS", raising=False)
@@ -184,9 +182,7 @@ class TestCorruptTokenFile:
         mock_flow_cls.from_client_secrets_file.assert_not_called()
         mock_build.assert_not_called()
 
-    def test_headless_corrupt_token_raises_and_never_opens_a_browser(
-        self, monkeypatch, tmp_path
-    ):
+    def test_headless_corrupt_token_raises_and_never_opens_a_browser(self, monkeypatch, tmp_path):
         token_path = tmp_path / "token.pickle"
         token_path.write_bytes(b"")
         monkeypatch.setenv("HEADLESS", "1")
