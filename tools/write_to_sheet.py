@@ -165,6 +165,27 @@ def _log_run(
         print("[stage_write] WARNING could not write run_log.jsonl")
 
 
+def _log_commit(rows_added: int, rows_updated: int) -> None:
+    """Appends one commit-outcome JSON line to run_log.jsonl, so the log
+    records outcome and not just intent - without this, check_drift.py could
+    not distinguish "staged and committed" from "staged and silently
+    abandoned". The "kind" field marks commit records; stage records keep
+    their original shape (no kind field) so every historical line still
+    parses. Never raises - a logging failure must not affect commit_write's
+    return value."""
+    try:
+        line = {
+            "ts": datetime.now(UTC).isoformat(),
+            "kind": "commit",
+            "rows_added": rows_added,
+            "rows_updated": rows_updated,
+        }
+        with open(_RUN_LOG_PATH, "a") as f:
+            f.write(json.dumps(line) + "\n")
+    except Exception:
+        print("[commit_write] WARNING could not write run_log.jsonl")
+
+
 def _company_matches(company_a: str, company_b: str) -> bool:
     """Two normalized company keys match if they're equal, or if one is a
     whitespace-boundary prefix of the other (handles truncated extractions
@@ -828,5 +849,7 @@ def commit_write(tool_context: ToolContext) -> dict:
     )
 
     tool_context.state[_PENDING_WRITE_STATE_KEY] = None
+
+    _log_commit(result["rows_added"], result["rows_updated"])
 
     return result

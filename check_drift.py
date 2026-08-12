@@ -25,6 +25,19 @@ Every record is checked for two independent drift signals:
       tools/write_to_sheet.py). A drift signal present alongside refused ==
       false means that guard did not catch it.
 
+Additionally, commit_write appends its own record on completion (kind ==
+"commit"; tools/write_to_sheet.py::_log_commit), which is paired here with
+the most recent preceding non-refused stage record:
+
+  stage record, refused == false, no corresponding commit
+      -> STAGED WITHOUT COMMIT
+      The run recorded intent but no outcome - staged and then silently
+      abandoned, or the process died between staging and committing. A
+      warning, not a severe verdict: unlike GUARD DID NOT FIRE it does not
+      by itself mean bad data reached the sheet. Stage records predating
+      commit logging (added 2026-08-11) have no commit records to pair with
+      and are expected to carry this warning.
+
 The committed run_log.jsonl contains a historical record from 2026-07-31
 (entries_received=25, ids_fetched=5, ids_searched=48, refused=false) that
 predates the fetch-completeness guard being tightened to also compare
@@ -46,9 +59,12 @@ _RUN_LOG_PATH = "run_log.jsonl"
 
 _REQUIRED_FIELDS = ("ts", "entries_received", "ids_searched", "ids_fetched", "refused")
 
+_COMMIT_REQUIRED_FIELDS = ("ts", "rows_added", "rows_updated")
+
 INCOMPLETE_EXTRACTION = "INCOMPLETE EXTRACTION"
 FABRICATION_RISK = "FABRICATION RISK"
 GUARD_DID_NOT_FIRE = "GUARD DID NOT FIRE"
+STAGED_NO_COMMIT = "STAGED WITHOUT COMMIT"
 CLEAN = "CLEAN"
 
 
@@ -60,14 +76,43 @@ class Record:
     ids_fetched: int
     refused: bool
     verdict: str
+    committed: bool = False
+
+    @property
+    def uncommitted(self) -> bool:
+        """True when the stage recorded intent but no commit record followed
+        and the guard did not explicitly refuse - staged and then abandoned."""
+        return not self.refused and not self.committed
 
     @property
     def flagged(self) -> bool:
+        # Deliberately excludes uncommitted: it is reported as its own
+        # warning signal (see main) without changing what "flagged" has
+        # always meant for the count-based drift verdicts.
         return self.verdict != CLEAN
 
     @property
     def severe(self) -> bool:
         return self.verdict == GUARD_DID_NOT_FIRE
+
+    @property
+    def display_verdict(self) -> str:
+        if not self.uncommitted:
+            return self.verdict
+        if self.verdict == CLEAN:
+            return STAGED_NO_COMMIT
+        return f"{self.verdict} + {STAGED_NO_COMMIT}"
+
+
+@dataclass
+class CommitRecord:
+    """One kind == "commit" line from run_log.jsonl - the outcome record
+    commit_write appends. Consumed during pairing in read_records, never
+    returned to callers."""
+
+    ts: str
+    rows_added: int
+    rows_updated: int
 
 
 def classify(entries_received: int, ids_searched: int, ids_fetched: int, refused: bool) -> str:
@@ -85,9 +130,10 @@ def classify(entries_received: int, ids_searched: int, ids_fetched: int, refused
     return " + ".join(flags)
 
 
-def _parse_line(line: str) -> Record | None:
-    """Parses one run_log.jsonl line into a Record, or None if the line is
-    malformed, truncated, or missing a required field. Never raises."""
+def _parse_line(line: str) -> Record | CommitRecord | None:
+    """Parses one run_log.jsonl line into a Record (stage) or CommitRecord
+    (kind == "commit"), or None if the line is malformed, truncated, or
+    missing a required field. Never raises."""
     line = line.strip()
     if not line:
         return None
@@ -97,6 +143,19 @@ def _parse_line(line: str) -> Record | None:
         return None
     if not isinstance(obj, dict):
         return None
+
+    if obj.get("kind") == "commit":
+        if not all(field in obj for field in _COMMIT_REQUIRED_FIELDS):
+            return None
+        try:
+            return CommitRecord(
+                ts=str(obj["ts"]),
+                rows_added=int(obj["rows_added"]),
+                rows_updated=int(obj["rows_updated"]),
+            )
+        except (TypeError, ValueError):
+            return None
+
     if not all(field in obj for field in _REQUIRED_FIELDS):
         return None
 
@@ -130,13 +189,25 @@ def read_records(path: str, last: int | None = None) -> tuple[list[Record], int]
     with open(path) as f:
         lines = f.readlines()
 
-    records = []
+    records: list[Record] = []
     malformed_count = 0
     for line in lines:
         record = _parse_line(line)
         if record is None:
             if line.strip():
                 malformed_count += 1
+            continue
+        if isinstance(record, CommitRecord):
+            # A commit applies the most recently staged plan, so pair it with
+            # the most recent preceding non-refused stage record (a refused
+            # stage never overwrites the pending plan and cannot be what got
+            # committed). Pairing happens on the whole file, before any
+            # --last slicing, so a stage is never flagged just because its
+            # commit fell outside the window.
+            for stage in reversed(records):
+                if not stage.refused and not stage.committed:
+                    stage.committed = True
+                    break
             continue
         records.append(record)
 
@@ -155,7 +226,7 @@ def _print_table(records: list[Record]) -> None:
     for r in records:
         print(
             f"{r.ts:<32} {r.ids_searched:>8} {r.ids_fetched:>8} {r.entries_received:>8} "
-            f"{str(r.refused):>8}  {r.verdict}"
+            f"{str(r.refused):>8}  {r.display_verdict}"
         )
 
 
@@ -189,12 +260,21 @@ def main(argv: list[str] | None = None) -> int:
 
     flagged = [r for r in records if r.flagged]
     severe = [r for r in records if r.severe]
+    uncommitted = [r for r in records if r.uncommitted]
 
     print()
     print(
         f"{len(records)} records read, {len(flagged)} flagged, "
         f"{malformed_count} malformed and skipped."
     )
+
+    if uncommitted:
+        # Warning only, like the non-severe drift verdicts - it does not by
+        # itself mean bad data reached the sheet, so it never exits non-zero.
+        print(
+            f"{len(uncommitted)} record(s) show {STAGED_NO_COMMIT} - staged "
+            "intent with no commit record and no explicit refusal."
+        )
 
     if severe:
         print(

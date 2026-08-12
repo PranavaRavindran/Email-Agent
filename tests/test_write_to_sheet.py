@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
@@ -722,8 +723,11 @@ class TestCommitWriteSessionState:
     @patch("write_to_sheet.build")
     @patch("write_to_sheet.get_gmail_service")
     def test_applies_pending_state_and_clears_it_after(
-        self, mock_get_service, mock_build, mock_apply
+        self, mock_get_service, mock_build, mock_apply, monkeypatch, tmp_path
     ):
+        # Redirect the run log: commit_write now appends a commit record,
+        # which must not land in the repo's real run_log.jsonl.
+        monkeypatch.setattr(wts, "_RUN_LOG_PATH", str(tmp_path / "run_log.jsonl"))
         mock_apply.return_value = {"rows_added": 1, "rows_updated": 1}
         tool_context = _FakeToolContext()
         pending = {
@@ -746,3 +750,52 @@ class TestCommitWriteSessionState:
             pending["last_data_row"],
         )
         assert tool_context.state[wts._PENDING_WRITE_STATE_KEY] is None
+
+
+class TestCommitWriteLogging:
+    def _staged_context(self):
+        tool_context = _FakeToolContext()
+        tool_context.state[wts._PENDING_WRITE_STATE_KEY] = {
+            "entries": [_entry()],
+            "updates": [],
+            "rows_to_append": [["2026-06-01", "Acme", "Eng", "", "Email", "Applied"]],
+            "last_data_row": 4,
+            "staged_at": datetime.now(UTC).isoformat(),
+            "diff": {},
+        }
+        return tool_context
+
+    @patch("write_to_sheet._apply")
+    @patch("write_to_sheet.build")
+    @patch("write_to_sheet.get_gmail_service")
+    def test_commit_appends_a_commit_record_with_outcome_fields(
+        self, mock_get_service, mock_build, mock_apply, monkeypatch, tmp_path
+    ):
+        log_path = tmp_path / "run_log.jsonl"
+        monkeypatch.setattr(wts, "_RUN_LOG_PATH", str(log_path))
+        mock_apply.return_value = {"rows_added": 3, "rows_updated": 2}
+
+        wts.commit_write(self._staged_context())
+
+        lines = log_path.read_text().strip().splitlines()
+        assert len(lines) == 1
+        record = json.loads(lines[0])
+        assert record["kind"] == "commit"
+        assert record["rows_added"] == 3
+        assert record["rows_updated"] == 2
+        assert "ts" in record
+
+    @patch("write_to_sheet._apply")
+    @patch("write_to_sheet.build")
+    @patch("write_to_sheet.get_gmail_service")
+    def test_logging_failure_does_not_affect_commit_result(
+        self, mock_get_service, mock_build, mock_apply, monkeypatch, tmp_path
+    ):
+        # Same never-raises contract as _log_run: point the log at an
+        # unwritable path and the commit must still succeed.
+        monkeypatch.setattr(wts, "_RUN_LOG_PATH", str(tmp_path / "no-such-dir" / "run.jsonl"))
+        mock_apply.return_value = {"rows_added": 1, "rows_updated": 0}
+
+        result = wts.commit_write(self._staged_context())
+
+        assert result == {"rows_added": 1, "rows_updated": 0}
