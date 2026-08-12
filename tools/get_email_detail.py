@@ -63,6 +63,8 @@ def _fetch_one(email_id: str, quiet: bool = False) -> dict:
     else:
         subject, from_, to, date, body = _fetch_via_raw_api(email_id)
 
+    body = _normalize_body(body)
+
     if not body:
         print(f"[get_email_detail] WARNING empty body for id {email_id} subject {subject}")
     if len(body) > _MAX_BODY_LENGTH:
@@ -120,10 +122,13 @@ def _fetch_via_mcp(email_id: str) -> tuple[str, str, str, str, str]:
     """Fetches via the MCP server's gmail_get tool. Returns (subject, from,
     to, date, body), body not yet truncated.
 
-    The server's own body extraction already falls back to the message
-    snippet when no text/plain part exists (see MCP_INTEGRATION.md's gate
-    G2), so an empty body here means the server had genuinely nothing -
-    treated downstream exactly like an empty raw-path body, not a new case."""
+    The body comes back exactly as the server extracted it, which for
+    messages with no text/plain part can be the raw text/html markup (see
+    MCP_INTEGRATION.md gate G2 and its correction) - _fetch_one's
+    _normalize_body handles that case for every transport, so no
+    extraction happens here. An empty body still means the server had
+    genuinely nothing - treated downstream exactly like an empty raw-path
+    body, not a new case."""
     response = mcp_call("gmail_get", {"messageId": email_id})
 
     return (
@@ -153,6 +158,29 @@ def _find_part_data(payload: dict, mime_type: str) -> str | None:
 
 def _decode(data: str) -> str:
     return base64.urlsafe_b64decode(data).decode("utf-8", errors="replace")
+
+
+def _normalize_body(body: str) -> str:
+    """Converts a fetched body to readable text when it is an HTML document.
+
+    Runs in _fetch_one on whatever the active transport returned, BEFORE
+    truncation, so every transport (MCP, raw, or a future one) shares the
+    same guarantee: a body that is raw HTML never reaches the model as
+    markup. The MCP server's gmail_get prefers text/plain but returns the
+    raw text/html part as-is when no plain-text part exists (see
+    MCP_INTEGRATION.md gate G2's correction), which is how 2000 chars of
+    CSS reached the model in the 2026-08-11 drafting eval.
+
+    Detection is deliberately conservative: only a body that *starts* with
+    an HTML document marker (<!doctype or <html) is converted. Gmail's
+    text/html parts are full documents, so this catches the real case,
+    while plain-text and snippet bodies — including text that merely
+    contains a stray < or > or an inline tag — pass through untouched.
+    """
+    head = body.lstrip()[:15].lower()
+    if head.startswith("<!doctype") or head.startswith("<html"):
+        return _html_to_text(body)
+    return body
 
 
 def _html_to_text(raw_html: str) -> str:

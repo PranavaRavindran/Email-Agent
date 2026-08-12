@@ -186,6 +186,23 @@ the kind of parity question the kill switch exists to let evals surface.
 
 Gate passes; `USE_MCP_GMAIL` defaults to `"1"`.
 
+**Correction (2026-08-11): the snippet-fallback prediction above is
+falsified.** The 2026-08-11 drafting eval failed under `USE_MCP_GMAIL=1`
+(final_response_match_v2 0.0) and passed under `USE_MCP_GMAIL=0` with all
+metrics 1.0 — same case, same code, only the kill switch differed, which is
+exactly the A/B the kill switch exists to provide. What actually came back
+from `gmail_get` for a plain-text-free HTML email was **the raw `text/html`
+markup itself**, starting `<!doctype html><html lang=en ...<style
+type="text/css">...` — not `message.snippet`. Because the extracted body was
+truthy, the handler's `body || message.snippet` fallback never fired, so the
+"will read as its Gmail snippet" prediction (and the "not a bug" conclusion
+that rested on it) does not hold. Since the wrapper truncates at 2000 chars,
+the model received only doctype/CSS preamble and the prose was discarded.
+The fix: `get_email_detail._fetch_one` now runs `_normalize_body` on the
+fetched body (any transport) before truncation, applying the existing
+`_html_to_text` when the body is an HTML document. The original reasoning is
+kept above, uncorrected, as the record of what was believed at gate time.
+
 ### Gate G3 — does `sheets_getRange` faithfully reproduce the current sheet read? **PASS, trivially**
 
 `tools/write_to_sheet.py`'s `_resolve` currently does exactly:
