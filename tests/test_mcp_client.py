@@ -441,3 +441,37 @@ class TestDispatchAndConfig:
 
         with pytest.raises(mc.MCPClientError, match="messageId"):
             mc.mcp_call("gmail_get", {})
+
+
+# ---------------------------------------------------------------------------
+# Endpoint auth selection (scheme-based)
+# ---------------------------------------------------------------------------
+
+
+class TestEndpointAuth:
+    def test_http_url_builds_client_with_no_auth(self, monkeypatch):
+        # http means a local `gcloud run services proxy` listener or a test
+        # double; the proxy supplies its own credentials, so the client must
+        # not try to mint an identity token (plain user-credential ADC can't).
+        monkeypatch.setenv("MCP_SERVER_URL", "http://127.0.0.1:8080")
+
+        client = mc.create_mcp_http_client(auth=mc._endpoint_auth())
+
+        assert client.auth is None
+
+    def test_https_url_attaches_id_token_auth_with_service_audience(self, monkeypatch):
+        monkeypatch.setenv("MCP_SERVER_URL", "https://svc-abc123-uc.a.run.app/mcp")
+
+        client = mc.create_mcp_http_client(auth=mc._endpoint_auth())
+
+        assert isinstance(client.auth, mc._GoogleIDTokenAuth)
+        assert client.auth._audience == "https://svc-abc123-uc.a.run.app"
+
+    def test_choice_is_by_scheme_not_hostname(self, monkeypatch):
+        # A proxy could bind any host, and an https localhost is still a TLS
+        # endpoint expecting a token: only the scheme decides, either way.
+        monkeypatch.setenv("MCP_SERVER_URL", "http://mcp-proxy.internal:9000")
+        assert mc._endpoint_auth() is None
+
+        monkeypatch.setenv("MCP_SERVER_URL", "https://127.0.0.1:8443")
+        assert isinstance(mc._endpoint_auth(), mc._GoogleIDTokenAuth)

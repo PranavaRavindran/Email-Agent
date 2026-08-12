@@ -1,11 +1,14 @@
 """Client for the google_workspace_mcp server deployed on Cloud Run.
 
-Talks streamable-http to the service named by MCP_SERVER_URL, authenticating
-every request with a Google-signed identity token whose audience is the
-service URL (Cloud Run is deployed --no-allow-unauthenticated; IAM is the
-only auth boundary). Locally the token comes from Application Default
-Credentials; deployed it comes from the runtime service account - same code
-path either way.
+Talks streamable-http to the service named by MCP_SERVER_URL. When the URL
+is https - a real Cloud Run endpoint - every request carries a Google-signed
+identity token whose audience is the service URL (Cloud Run is deployed
+--no-allow-unauthenticated; IAM is the only auth boundary). Locally the
+token comes from Application Default Credentials; deployed it comes from the
+runtime service account - same code path either way. When the URL is http -
+a `gcloud run services proxy` listener or a test double - no token is
+attached: the proxy adds its own credentials, and plain user-credential ADC
+cannot mint identity tokens anyway.
 
 The server's tools return FORMATTED TEXT, not JSON: every tool's Python
 signature is `-> str` and `structuredContent` merely duplicates the text
@@ -26,6 +29,7 @@ requires (from USER_GOOGLE_EMAIL).
 import ast
 import asyncio
 import atexit
+import logging
 import os
 import re
 import threading
@@ -39,6 +43,8 @@ from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
 from mcp import ClientSession
 from mcp.client.streamable_http import create_mcp_http_client, streamable_http_client
+
+_logger = logging.getLogger(__name__)
 
 _URL_ENV_VAR = "MCP_SERVER_URL"
 _EMAIL_ENV_VAR = "USER_GOOGLE_EMAIL"
@@ -476,6 +482,28 @@ class _GoogleIDTokenAuth(httpx2.Auth):
         yield request
 
 
+def _endpoint_auth() -> httpx2.Auth | None:
+    """Picks request auth from the URL scheme alone: https is a real Cloud
+    Run endpoint and needs an identity token; http is a local listener (a
+    `gcloud run services proxy` or a test double) that supplies its own
+    credentials, where minting a token would be wrong - and hangs under
+    plain user-credential ADC, which cannot mint identity tokens."""
+    if urlsplit(_server_url()).scheme == "http":
+        _logger.info(
+            "%s is http; connecting without Google identity-token auth "
+            "(a local proxy or test listener supplies its own credentials)",
+            _URL_ENV_VAR,
+        )
+        return None
+    audience = _audience()
+    _logger.info(
+        "%s is https; attaching Google identity-token auth with audience %s",
+        _URL_ENV_VAR,
+        audience,
+    )
+    return _GoogleIDTokenAuth(audience)
+
+
 # ---------------------------------------------------------------------------
 # Transport: persistent streamable-http session on a background event loop
 # ---------------------------------------------------------------------------
@@ -561,7 +589,7 @@ async def _connect(ready: threading.Event, errors: list[BaseException]) -> None:
     session_cm = None
     try:
         endpoint = _endpoint_url()
-        http_client = create_mcp_http_client(auth=_GoogleIDTokenAuth(_audience()))
+        http_client = create_mcp_http_client(auth=_endpoint_auth())
         transport_cm = streamable_http_client(endpoint, http_client=http_client)
         read_stream, write_stream = await transport_cm.__aenter__()
 
