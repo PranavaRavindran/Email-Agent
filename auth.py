@@ -31,6 +31,14 @@ _HEADLESS_AUTH_ERROR = (
     "the path " + _TOKEN_PATH_ENV_VAR + " points to."
 )
 
+_CORRUPT_TOKEN_ERROR = (
+    "Token file '{token_path}' exists but did not yield usable credentials "
+    "({reason}). The file is likely empty, truncated, or not a pickled "
+    "credentials object. Fix: delete it and re-authorize (run once with "
+    "HEADLESS unset or 0 to go through the interactive browser flow, which "
+    "rewrites the token file)."
+)
+
 _service: GmailService | None = None
 _service_lock = threading.Lock()
 _thread_local = threading.local()
@@ -78,8 +86,31 @@ def _build_service() -> GmailService:
     creds = None
 
     if os.path.exists(token_path):
-        with open(token_path, "rb") as f:
-            creds = pickle.load(f)
+        # Existence is not validity: a zero-byte or corrupt token file passes
+        # the path check and would crash inside pickle.load with an error
+        # naming neither the file nor the remedy. Failures here raise the
+        # actionable error in BOTH modes - never fall through to the browser
+        # flow, and in particular HEADLESS=1 must still raise immediately.
+        # AttributeError covers pickles whose class can no longer be imported.
+        try:
+            with open(token_path, "rb") as f:
+                creds = pickle.load(f)
+        except (EOFError, pickle.UnpicklingError, AttributeError) as e:
+            raise RuntimeError(
+                _CORRUPT_TOKEN_ERROR.format(
+                    token_path=token_path, reason=f"{type(e).__name__}: {e}"
+                )
+            ) from e
+        if not hasattr(creds, "valid"):
+            raise RuntimeError(
+                _CORRUPT_TOKEN_ERROR.format(
+                    token_path=token_path,
+                    reason=(
+                        f"unpickled object of type {type(creds).__name__} "
+                        "is not a credentials object"
+                    ),
+                )
+            )
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:

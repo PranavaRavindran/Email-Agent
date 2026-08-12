@@ -123,6 +123,85 @@ class TestHeadlessAuth:
         mock_build.assert_called_once_with("gmail", "v1", credentials=expired_creds)
 
 
+class TestCorruptTokenFile:
+    """A token file that exists but does not load into usable credentials
+    must produce an actionable error naming the path and the remedy - not a
+    raw EOFError three frames deep, and never a fall-through to the browser
+    flow."""
+
+    def _assert_actionable(self, excinfo, token_path):
+        message = str(excinfo.value)
+        assert str(token_path) in message
+        assert "delete" in message.lower()
+        assert "re-authorize" in message.lower()
+
+    def test_zero_byte_token_raises_actionable_error_not_raw_eoferror(
+        self, monkeypatch, tmp_path
+    ):
+        token_path = tmp_path / "token.pickle"
+        token_path.write_bytes(b"")
+        monkeypatch.delenv("HEADLESS", raising=False)
+        monkeypatch.setenv("GOOGLE_TOKEN_PATH", str(token_path))
+
+        with patch("auth.InstalledAppFlow") as mock_flow_cls, patch("auth.build") as mock_build:
+            with pytest.raises(RuntimeError) as excinfo:
+                auth._build_service()
+
+        self._assert_actionable(excinfo, token_path)
+        assert isinstance(excinfo.value.__cause__, EOFError)
+        mock_flow_cls.from_client_secrets_file.assert_not_called()
+        mock_build.assert_not_called()
+
+    def test_garbage_bytes_token_raises_actionable_error(self, monkeypatch, tmp_path):
+        token_path = tmp_path / "token.pickle"
+        token_path.write_bytes(b"this is definitely not a pickle")
+        monkeypatch.delenv("HEADLESS", raising=False)
+        monkeypatch.setenv("GOOGLE_TOKEN_PATH", str(token_path))
+
+        with patch("auth.InstalledAppFlow") as mock_flow_cls, patch("auth.build") as mock_build:
+            with pytest.raises(RuntimeError) as excinfo:
+                auth._build_service()
+
+        self._assert_actionable(excinfo, token_path)
+        assert excinfo.value.__cause__ is not None
+        mock_flow_cls.from_client_secrets_file.assert_not_called()
+        mock_build.assert_not_called()
+
+    def test_valid_pickle_of_wrong_type_raises_actionable_error(self, monkeypatch, tmp_path):
+        import pickle
+
+        token_path = tmp_path / "token.pickle"
+        token_path.write_bytes(pickle.dumps({"access_token": "not-a-credentials-object"}))
+        monkeypatch.delenv("HEADLESS", raising=False)
+        monkeypatch.setenv("GOOGLE_TOKEN_PATH", str(token_path))
+
+        with patch("auth.InstalledAppFlow") as mock_flow_cls, patch("auth.build") as mock_build:
+            with pytest.raises(RuntimeError) as excinfo:
+                auth._build_service()
+
+        self._assert_actionable(excinfo, token_path)
+        assert "dict" in str(excinfo.value)
+        mock_flow_cls.from_client_secrets_file.assert_not_called()
+        mock_build.assert_not_called()
+
+    def test_headless_corrupt_token_raises_and_never_opens_a_browser(
+        self, monkeypatch, tmp_path
+    ):
+        token_path = tmp_path / "token.pickle"
+        token_path.write_bytes(b"")
+        monkeypatch.setenv("HEADLESS", "1")
+        monkeypatch.setenv("GOOGLE_TOKEN_PATH", str(token_path))
+
+        with patch("auth.InstalledAppFlow") as mock_flow_cls, patch("auth.build") as mock_build:
+            with pytest.raises(RuntimeError) as excinfo:
+                auth._build_service()
+
+        self._assert_actionable(excinfo, token_path)
+        mock_flow_cls.from_client_secrets_file.assert_not_called()
+        mock_flow_cls.from_client_secrets_file.return_value.run_local_server.assert_not_called()
+        mock_build.assert_not_called()
+
+
 class TestHeadlessUnsetPreservesCurrentBehavior:
     def test_no_token_falls_through_to_the_browser_flow(self, monkeypatch, tmp_path):
         monkeypatch.delenv("HEADLESS", raising=False)
