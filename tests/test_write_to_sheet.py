@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
+import pytest
 import write_to_sheet as wts
 from write_to_sheet import (
     _company_matches,
@@ -25,6 +26,16 @@ class _FakeToolContext:
 
     def __init__(self):
         self.state = {}
+
+
+@pytest.fixture(autouse=True)
+def isolated_run_log(monkeypatch, tmp_path):
+    """Redirect every stage/commit record to a per-test temp file. The repo's
+    real run_log.jsonl is the evidentiary drift record check_drift.py reads;
+    synthetic rows from test runs dilute it and make its verdicts
+    untrustworthy. Tests that assert on log contents still monkeypatch their
+    own path on top of this."""
+    monkeypatch.setattr(wts, "_RUN_LOG_PATH", str(tmp_path / "run_log.jsonl"))
 
 
 # ---------------------------------------------------------------------------
