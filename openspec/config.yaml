@@ -1,32 +1,23 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  Multi-agent Gmail/Sheets assistant on Google ADK. root_agent orchestrates
+  four specialists (inbox, classification, drafting, tracker) via AgentTool,
+  not sub_agents. Python 3.11, Gemini 2.5 Flash via Vertex.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  agent_spec.yaml is the existing behavioural contract: it states rules that
+  determine whether output is correct, deliberately not a copy of agent
+  instruction prose.
 
-# Per-operation guidance (optional)
-# Add advisory guidance for how apply and archive work should be conducted.
-# This is separate from artifact rules above.
-# Example:
-#   operations:
-#     apply:
-#       guidance:
-#         - Keep test summaries concise
-#     archive:
-#       guidance:
-#         - Summarize the archive outcome before finishing
+  Guiding principle: constrain structurally, not by instruction. Remove the
+  path rather than forbid it. Examples: batched fetching, IDs-only search,
+  two-step staged writes with a confirmation gate, a completeness guard.
+
+  Two kill switches, USE_MCP_GMAIL and USE_MCP_SHEETS, select MCP vs the raw
+  Google API path. They are the rollback and a diagnostic instrument; never
+  remove or weaken them.
+
+  Verification: ./scripts/check.sh runs ruff, ruff format --check, mypy and
+  pytest (265+ tests), and is the same list CI runs. Changes to any of the 9
+  model-facing tool signatures CANNOT be verified by pytest and require a
+  live eval run (./run_evals.sh, 5 cases, costs real API calls).
