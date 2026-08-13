@@ -382,7 +382,7 @@ def deploy(service_account: str, staging_bucket: str, resource_name: str | None)
     # No session_service_builder: the deployed default is the managed
     # VertexAiSessionService (see module docstring). enable_tracing stays
     # unset; the telemetry env var controls tracing.
-    app = AdkApp(agent=root_agent)
+    app = AdkApp(agent=root_agent, enable_tracing=True)
 
     client = vertexai.Client(project=PROJECT, location=LOCATION)
     existing = _resolve_existing(client, resource_name)
