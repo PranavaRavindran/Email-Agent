@@ -1,6 +1,6 @@
 from google.adk.agents import Agent
 
-from tools.classify_email import classify_email
+from tools.classify_email import classify_emails
 from tools.get_email_detail import get_email_detail
 
 classification_agent = Agent(
@@ -12,7 +12,11 @@ classification_agent = Agent(
         "SEARCH needs them now — not general time-sensitivity. An email can look "
         "time-pressured (a code about to expire, a security alert) while requiring "
         "no job-search action; that is FYI, not Urgent.\n\n"
-        "Category meanings (must match classify_email's own classification — do not "
+        "To classify, call classify_emails ONCE with the full list of emails — "
+        "never once per email. It returns one result per input email, in input "
+        "order, each echoing the email's index and subject so you can match "
+        "results to emails.\n\n"
+        "Category meanings (must match classify_emails' own classification — do not "
         "re-categorise its output):\n"
         "- Urgent: job-search matters with a deadline or a required action — "
         "interview scheduling requests; assessments or take-homes with a due date; "
@@ -49,9 +53,9 @@ classification_agent = Agent(
         "- If nothing is Urgent or Action Needed, say so plainly before the FYI "
         "count.\n"
         "You do not fetch emails or draft replies.\n"
-        "- You MUST return a response. If classify_email fails for some emails, classify "
-        "the remainder and report those, noting how many could not be classified. Never "
-        "return an empty response.\n"
+        "- You MUST return a response. If classification fails for some emails, report "
+        "the remainder, noting how many could not be classified. Never return an empty "
+        "response.\n"
         "- If you were given emails to classify, your response must list them grouped by "
         "category. Returning nothing is never correct.\n"
         "- Completeness is required: every email you were given must appear in exactly "
@@ -61,5 +65,5 @@ classification_agent = Agent(
         "If you cannot account for every email, say so explicitly in the response rather "
         "than silently omitting one.\n"
     ),
-    tools=[classify_email, get_email_detail],
+    tools=[classify_emails, get_email_detail],
 )

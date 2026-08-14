@@ -1,4 +1,4 @@
-from .classify_email import classify_email
+from .classify_email import classify_emails
 from .draft_reply import draft_reply
 from .find_application_date import find_application_date
 from .get_email_detail import get_email_detail
@@ -12,7 +12,7 @@ __all__ = [
     "list_emails",
     "get_email_detail",
     "get_emails_bulk",
-    "classify_email",
+    "classify_emails",
     "draft_reply",
     "search_email_ids",
     "search_emails",

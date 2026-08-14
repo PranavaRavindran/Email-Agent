@@ -139,7 +139,7 @@ agents:
         response must say so rather than silently omitting it.
       - Does not fetch emails or draft replies.
     tools:
-      - classify_email
+      - classify_emails
       - get_email_detail
 
   - name: drafting_agent
@@ -317,9 +317,26 @@ tools:
         established in the opening paragraph; untruncated bodies caused
         context-exhaustion and rate-limit failures.
       - No snippet is returned.
-  classify_email:
-    purpose: Priority classification, action item and deadline extraction.
+  classify_emails:
+    purpose: >
+      Priority classification, action item and deadline extraction for a
+      batch of emails in one call.
     used_by: [classification_agent]
+    contract:
+      - Takes the full list of emails in a single invocation and returns
+        exactly one result per input email, in input order, each echoing the
+        email's index and subject. The agent calls it once per batch, never
+        once per email — the per-email loop is removed structurally, not by
+        instruction.
+      - Classifies exactly the content the caller supplies (sender, subject,
+        body or snippet); never fetches or re-fetches email content itself.
+      - Each email is classified independently through the same per-email
+        prompt as before batching; per-email calls run concurrently inside
+        the tool.
+      - Never raises. An email whose classification fails or cannot be
+        parsed gets the safe default (fyi, no action items, no deadline)
+        without affecting the rest of the batch; if every call fails, one
+        safe default is returned per input email.
   draft_reply:
     purpose: Reply generation for review.
     used_by: [drafting_agent]

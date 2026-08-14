@@ -1,24 +1,19 @@
+import concurrent.futures
 import json
 
 from google.genai import types
 
 from tools.genai_client import get_genai_client
 
+_MAX_WORKERS = 8
 
-def classify_email(email: dict) -> dict:
-    """Classifies an email by priority and extracts action items and deadlines.
 
-    Uses Gemini to analyze the email and return a structured classification.
+def _classify_one(email: dict) -> dict:
+    """Classifies a single email; the prompt, model call, parsing and
+    safe-default fallback are the original single-email tool moved verbatim.
 
-    Args:
-        email: A dict with keys 'from', 'subject', 'body' (or 'snippet'),
-               and optionally 'date'.
-
-    Returns:
-        A dict with:
-          - classification: one of "urgent", "action_needed", "fyi", or "spam"
-          - action_items: list of specific actions required (may be empty)
-          - deadline: deadline string if mentioned, else empty string
+    Never raises: any failure returns the safe default
+    ("fyi", no action items, no deadline).
     """
     subject = email.get("subject", "")
     print(f"[classify_email] {subject[:60]}")
@@ -121,4 +116,57 @@ Respond ONLY with the JSON object, no markdown fences or extra text."""
         "classification": result.get("classification", "fyi"),
         "action_items": result.get("action_items", []),
         "deadline": result.get("deadline", ""),
+    }
+
+
+def classify_emails(emails: list[dict]) -> dict:
+    """Classifies a batch of emails by priority in a single call.
+
+    Pass ALL emails to classify in one invocation — do not call this tool
+    once per email. Each email is classified independently and concurrently
+    against the exact email content provided; nothing is fetched or
+    re-fetched.
+
+    Args:
+        emails: A list of dicts, each with keys 'from', 'subject',
+            'body' (or 'snippet'), and optionally 'date'.
+
+    Returns:
+        A dict with a "results" list containing exactly one entry per input
+        email, in input order. Each entry has:
+          - index: position of the email in the input list
+          - subject: the input email's subject, echoed back
+          - classification: one of "urgent", "action_needed", "fyi", or "spam"
+          - action_items: list of specific actions required (may be empty)
+          - deadline: deadline string if mentioned, else empty string
+        An email whose classification fails gets the safe default ("fyi",
+        no action items, no deadline); the rest of the batch is unaffected.
+    """
+    print(f"[classify_emails] classifying {len(emails)} emails")
+    if not emails:
+        return {"results": []}
+
+    # Pre-filled with safe defaults so every input has a result even if a
+    # worker fails in a way the helper's own fallback cannot catch.
+    classifications: list[dict] = [
+        {"classification": "fyi", "action_items": [], "deadline": ""} for _ in emails
+    ]
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(_MAX_WORKERS, len(emails))
+    ) as executor:
+        future_to_index = {
+            executor.submit(_classify_one, email): i for i, email in enumerate(emails)
+        }
+        for future in concurrent.futures.as_completed(future_to_index):
+            i = future_to_index[future]
+            try:
+                classifications[i] = future.result()
+            except Exception as e:
+                print(f"[classify_emails] ERROR {type(e).__name__}: {e}")
+
+    return {
+        "results": [
+            {"index": i, "subject": emails[i].get("subject", ""), **classification}
+            for i, classification in enumerate(classifications)
+        ]
     }

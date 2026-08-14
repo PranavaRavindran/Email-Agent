@@ -37,7 +37,7 @@ against the existing sheet, shows that diff, and writes only after confirmation.
    inbox_agent  classification   drafting      tracker_agent
                    _agent        _agent
         |           |                |             |
-   list_emails   classify_email  draft_reply   search_email_ids
+   list_emails   classify_emails draft_reply   search_email_ids
    search_emails                               get_email_detail
    get_email_detail                            stage_write
                                                commit_write
